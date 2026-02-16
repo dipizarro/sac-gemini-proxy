@@ -1,0 +1,100 @@
+const fs = require("fs");
+const path = require("path");
+const iconv = require("iconv-lite");
+const { parse } = require("csv-parse/sync");
+const { normalizeHeader, toNumberSmart } = require("../utils/helpers");
+
+class DataService {
+    constructor() {
+        this.csvPath = path.join(process.cwd(), "data", "3V_MM_MOVMAT_01_3M.csv");
+    }
+
+    loadByPath(filePath) { // Para pruebas o flexibilidad
+        const raw = fs.readFileSync(filePath);
+        // Si tildes se ven mal, cambia a "win1252"
+        const text = iconv.decode(raw, "utf8");
+        const lines = text.split(/\r?\n/);
+
+        // Busca la fila del header real (la que contiene MATERIAL1 y ID CENTRO)
+        const headerIdx = lines.findIndex(l =>
+            l.includes("MATERIAL1,") && l.includes("FECHA,") && l.includes("ID CENTRO")
+        );
+        if (headerIdx === -1) throw new Error("No encontré el header real en el CSV.");
+
+        const cleaned = lines.slice(headerIdx).join("\n");
+
+        const rows = parse(cleaned, {
+            bom: true,
+            delimiter: ",",
+            skip_empty_lines: true,
+            relax_quotes: true,
+            relax_column_count: true,
+            trim: true,
+            columns: (header) => header.map(normalizeHeader)
+        });
+        return rows;
+    }
+
+    loadMovMatCsv() {
+        return this.loadByPath(this.csvPath);
+    }
+
+    sumBy(rows, key, valueKey) {
+        return rows.reduce((acc, r) => {
+            const k = (r[key] ?? "SIN_DATO").toString().trim() || "SIN_DATO";
+            const v = toNumberSmart(r[valueKey]);
+            acc[k] = (acc[k] || 0) + v;
+            return acc;
+        }, {});
+    }
+
+    countBy(rows, key) {
+        return rows.reduce((acc, r) => {
+            const k = (r[key] ?? "SIN_DATO").toString().trim() || "SIN_DATO";
+            acc[k] = (acc[k] || 0) + 1;
+            return acc;
+        }, {});
+    }
+
+    topN(mapObj, n = 5) {
+        return Object.entries(mapObj)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, n);
+    }
+
+    getInsights() {
+        try {
+            const rows = this.loadMovMatCsv();
+
+            // Preview se ve que SUMA_NETA está en COL_8
+            const SUM_KEY = "COL_8";
+
+            const topCentros = this.topN(this.sumBy(rows, "ID_CENTRO", SUM_KEY), 5);
+            const topClases = this.topN(this.countBy(rows, "CLASE_MOVIMIENTO"), 5);
+            const topGrupos = this.topN(this.countBy(rows, "GRUPO_ARTICULOS"), 5);
+
+            // Sample chico 
+            const sample = rows.slice(0, 12);
+
+            return `
+          Contexto del reporte (CSV MovMat):
+          - Top 5 ID_CENTRO por suma (${SUM_KEY}):
+          ${JSON.stringify(topCentros, null, 2)}
+          - Top 5 CLASE_MOVIMIENTO por frecuencia:
+          ${JSON.stringify(topClases, null, 2)}
+          - Top 5 GRUPO_ARTICULOS por frecuencia:
+          ${JSON.stringify(topGrupos, null, 2)}
+          - Muestra de filas:
+          ${JSON.stringify(sample, null, 2)}
+  
+          Instrucciones:
+          - Responde con lenguaje de negocio.
+          - Si falta un filtro (fecha/centro/clase), pregunta cuál necesita.
+          `;
+        } catch (e) {
+            return `Contexto CSV no disponible (error leyendo archivo): ${e.message}`;
+        }
+    }
+}
+
+module.exports = new DataService();

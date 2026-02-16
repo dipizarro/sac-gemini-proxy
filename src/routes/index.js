@@ -1,0 +1,17 @@
+const express = require("express");
+const router = express.Router();
+const ChatController = require("../controllers/ChatController");
+const WidgetController = require("../controllers/WidgetController");
+
+router.get("/health", (req, res) => {
+    res.json({ ok: true, service: "sac-gemini-proxy" });
+});
+
+router.post("/chat", (req, res) => ChatController.handleChat(req, res));
+router.get("/ds/movmat", (req, res) => ChatController.proxyDatasphere(req, res));
+router.get("/csv/preview", (req, res) => ChatController.getCsvPreview(req, res));
+
+router.get("/widget/main.js", (req, res) => WidgetController.serveWidget(req, res));
+router.get("/demo", (req, res) => WidgetController.serveDemo(req, res));
+
+module.exports = router;

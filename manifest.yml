@@ -1,0 +1,12 @@
+---
+applications:
+  - name: sac-gemini-proxy
+    memory: 256M
+    instances: 1
+    buildpacks:
+      - nodejs_buildpack
+    command: npm start
+    env:
+      NODE_ENV: production
+      # Estas 2 las vas a setear en BTP después (no las dejes con valores reales aquí)
+      GEMINI_MODEL: gemini-2.5-flash
