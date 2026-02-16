@@ -3,6 +3,8 @@ const path = require("path");
 const iconv = require("iconv-lite");
 const { parse } = require("csv-parse/sync");
 const { normalizeHeader, toNumberSmart } = require("../utils/helpers");
+const OAuthService = require("./OAuthService");
+const config = require("../config/config");
 
 class DataService {
     constructor() {
@@ -93,6 +95,64 @@ class DataService {
           `;
         } catch (e) {
             return `Contexto CSV no disponible (error leyendo archivo): ${e.message}`;
+        }
+    }
+
+    /**
+     * Consume OData MovMat desde Datasphere.
+     * @param {Object} options
+     * @param {number} [options.top=50] - Cantidad de registros ($top)
+     * @param {string|string[]} [options.select] - Campos a seleccionar ($select)
+     * @param {string} [options.filter] - Filtro OData ($filter)
+     * @returns {Promise<Object>} Respuesta JSON de Datasphere
+     */
+    async fetchMovMat({ top = 50, select, filter } = {}) {
+        const token = await OAuthService.getAccessToken();
+        const baseUrl = config.datasphere.url;
+
+        if (!baseUrl) {
+            throw new Error("Missing DATASPHERE_ODATA_URL in config");
+        }
+
+        const params = new URLSearchParams();
+
+        // $top
+        if (top) params.append("$top", top);
+
+        // $select
+        if (select) {
+            const selectVal = Array.isArray(select) ? select.join(",") : select;
+            params.append("$select", selectVal);
+        }
+
+        // $filter
+        if (filter) {
+            params.append("$filter", filter);
+        }
+
+        // $format
+        params.append("$format", "json");
+
+        const url = `${baseUrl}?${params.toString()}`;
+
+        try {
+            const response = await fetch(url, {
+                method: "GET",
+                headers: {
+                    "Authorization": `Bearer ${token}`,
+                    "Accept": "application/json"
+                }
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`OData request failed: ${response.status} ${response.statusText} - ${errorText}`);
+            }
+
+            return await response.json();
+        } catch (error) {
+            // Re-lanzar error (OAuthService ya maneja sus errores, aquí manejamos el fetch de datos)
+            throw new Error(`Failed to fetch MovMat data: ${error.message}`);
         }
     }
 }
