@@ -10,6 +10,11 @@ module.exports = {
         url: process.env.DATASPHERE_ODATA_URL,
         user: process.env.DATASPHERE_USER,
         pass: process.env.DATASPHERE_PASS,
+        oauth: {
+            tokenUrl: process.env.DS_TOKEN_URL,
+            clientId: process.env.DS_CLIENT_ID,
+            clientSecret: process.env.DS_CLIENT_SECRET,
+        }
     },
     cors: {
         allowedOrigins: (process.env.ALLOWED_ORIGINS || "")
