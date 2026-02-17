@@ -1,5 +1,10 @@
 const DataService = require("../services/DataService");
 const GeminiService = require("../services/GeminiService");
+const ExportService = require("../services/ExportService");
+const CacheService = require("../services/CacheService");
+const config = require("../config/config");
+const { parse } = require("csv-parse/sync");
+const { normalizeHeader } = require("../utils/helpers");
 
 class ChatController {
     async handleChat(req, res) {
@@ -18,18 +23,35 @@ class ChatController {
 
             if (needsData) {
                 try {
-                    // Fetch real data from Datasphere
-                    // top: 200 para tener muestra suficiente para agregar
-                    const data = await DataService.fetchMovMat({ top: 200 });
+                    const CACHE_KEY = "MOVMAT_DATA";
+                    let rows = CacheService.get(CACHE_KEY);
+                    let source = "Cache (Memoria)";
 
-                    // Normalizar respuesta (Datasphere OData puede devolver { d: { results: [] } } o { value: [] })
-                    const rows = data.d?.results || data.value || (Array.isArray(data) ? data : []);
+                    if (!rows) {
+                        console.log("Cache miss. Fetching from Datasphere Export Service...");
+                        source = "Datasphere Export (Live)";
+                        const resourcePath = config.datasphere.movMatPath;
 
-                    if (rows.length > 0) {
+                        // 1. Download CSV Buffer via Export Service
+                        const buffer = await ExportService.exportToCsvBuffer({ resourcePath });
+
+                        // 2. Parse CSV
+                        rows = parse(buffer, {
+                            columns: (header) => header.map(normalizeHeader),
+                            skip_empty_lines: true,
+                            trim: true,
+                            relax_quotes: true
+                        });
+
+                        // 3. Store in Cache (10 minutes)
+                        if (rows && rows.length > 0) {
+                            CacheService.set(CACHE_KEY, rows, 10 * 60 * 1000);
+                        }
+                    }
+
+                    if (rows && rows.length > 0) {
                         // Agregaciones usando helpers de DataService
-                        // Asumimos COL_8 es numérica para suma (similar a getInsights de CSV) o usamos conteo si no.
-                        // Intenta detectar columna métrica
-                        const numericCol = "COL_8"; // Ajustar si se sabe nombre real OData, por ahora asumimos mapeo similar al CSV o hardcode
+                        const numericCol = "COL_8";
 
                         // Top 5 ID_CENTRO
                         const sumByCentro = DataService.sumBy(rows, "ID_CENTRO", numericCol);
@@ -43,8 +65,8 @@ class ChatController {
                         const sample = rows.slice(0, 10);
 
                         context = `
-Contexto de datos (Datasphere OData):
-- Registros analizados: ${rows.length} (Muestra de los últimos movimietos)
+Contexto de datos (${source}):
+- Registros analizados: ${rows.length}
 - Top 5 Centros (posiblemente por volumen/suma): ${JSON.stringify(topCentros)}
 - Top 5 Clases de Movimiento (frecuencia): ${JSON.stringify(topClases)}
 - Muestra de datos: ${JSON.stringify(sample)}
@@ -54,7 +76,7 @@ Instrucciones:
 - Si te piden detalles que no están en la muestra, indica que solo tienes una vista parcial.
 `;
                     } else {
-                        context = "No se encontraron datos recientes en Datasphere.";
+                        context = "No se encontraron datos en Datasphere para la vista solicitada.";
                     }
                 } catch (dataErr) {
                     console.error("Error fetching Datasphere data:", dataErr.message);
@@ -85,9 +107,7 @@ Instrucciones:
     }
 
     async proxyDatasphere(req, res) {
-        // Este es el código original de server.js, mantenido como está.
-        // En un refactor real, esto debería probablemente estar en un DatasphereService.
-        // implementando inline aquí para coincidir con el alcance.
+        // Este es el código original de server.js
         const config = require("../config/config");
         try {
             const url = `${config.datasphere.url}?$top=50&$format=json`;

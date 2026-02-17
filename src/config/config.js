@@ -10,7 +10,8 @@ module.exports = {
         url: process.env.DATASPHERE_ODATA_URL,
         user: process.env.DATASPHERE_USER,
         pass: process.env.DATASPHERE_PASS,
-        exportUrl: process.env.DATASPHERE_EXPORT_URL, // Base URL for Export Service jobs
+        exportUrl: process.env.DATASPHERE_EXPORT_URL,
+        movMatPath: process.env.DATASPHERE_MOVMAT_PATH || "3V_MM_MOVMAT_01_3M", // Default view name
         oauth: {
             tokenUrl: process.env.DS_TOKEN_URL,
             clientId: process.env.DS_CLIENT_ID,

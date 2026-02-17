@@ -18,4 +18,10 @@ router.get("/demo", (req, res) => WidgetController.serveDemo(req, res));
 const ExportController = require("../controllers/ExportController");
 router.get("/ds/export/preview", (req, res) => ExportController.getPreview(req, res));
 
+// CSV Management
+const CsvController = require("../controllers/CsvController");
+router.get("/csv/status", (req, res) => CsvController.getStatus(req, res));
+router.post("/csv/reload", (req, res) => CsvController.reload(req, res));
+router.get("/csv/summary", (req, res) => CsvController.getSummary(req, res));
+
 module.exports = router;
