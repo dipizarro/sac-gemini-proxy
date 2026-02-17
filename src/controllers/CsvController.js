@@ -22,7 +22,7 @@ class CsvController {
             }
 
             // Check Cache Status
-            const cachedData = CacheService.get("LOCAL_CSV_DATA");
+            const cachedData = CacheService.get("MOVMAT_DATA");
             const cacheStatus = {
                 loaded: !!cachedData,
                 rows: cachedData ? cachedData.length : 0
@@ -40,12 +40,12 @@ class CsvController {
 
     async reload(req, res) {
         try {
-            console.log("Reloading CSV...");
+            console.log("Reloading CSV from disk...");
             // Force load from disk
             const rows = DataService.loadMovMatCsv();
 
             // Update Cache (store indefinitely or long TTL, e.g. 24h)
-            CacheService.set("LOCAL_CSV_DATA", rows, 24 * 60 * 60 * 1000);
+            CacheService.set("MOVMAT_DATA", rows, 24 * 60 * 60 * 1000);
 
             res.json({
                 ok: true,
@@ -60,13 +60,13 @@ class CsvController {
 
     async getSummary(req, res) {
         try {
-            let rows = CacheService.get("LOCAL_CSV_DATA");
+            let rows = CacheService.get("MOVMAT_DATA");
 
             if (!rows) {
                 // Auto-load if not in cache
                 console.log("CSV not in cache, loading...");
                 rows = DataService.loadMovMatCsv();
-                CacheService.set("LOCAL_CSV_DATA", rows, 24 * 60 * 60 * 1000);
+                CacheService.set("MOVMAT_DATA", rows, 24 * 60 * 60 * 1000);
             }
 
             // Calculations

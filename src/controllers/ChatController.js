@@ -28,24 +28,35 @@ class ChatController {
                     let source = "Cache (Memoria)";
 
                     if (!rows) {
-                        console.log("Cache miss. Fetching from Datasphere Export Service...");
-                        source = "Datasphere Export (Live)";
-                        const resourcePath = config.datasphere.movMatPath;
+                        // 1. Try Local CSV first (Faster, preferred for demo)
+                        try {
+                            console.log("Cache miss. Loading local CSV...");
+                            rows = DataService.loadMovMatCsv();
+                            source = "CSV Local (Disk)";
+                            if (rows && rows.length > 0) {
+                                CacheService.set(CACHE_KEY, rows, 24 * 60 * 60 * 1000); // 24h for local file
+                            }
+                        } catch (csvErr) {
+                            console.warn("Local CSV load failed:", csvErr.message);
 
-                        // 1. Download CSV Buffer via Export Service
-                        const buffer = await ExportService.exportToCsvBuffer({ resourcePath });
-
-                        // 2. Parse CSV
-                        rows = parse(buffer, {
-                            columns: (header) => header.map(normalizeHeader),
-                            skip_empty_lines: true,
-                            trim: true,
-                            relax_quotes: true
-                        });
-
-                        // 3. Store in Cache (10 minutes)
-                        if (rows && rows.length > 0) {
-                            CacheService.set(CACHE_KEY, rows, 10 * 60 * 1000);
+                            // 2. Fallback to Datasphere Export IF configured
+                            if (config.datasphere.exportUrl) {
+                                console.log("Fetching from Datasphere Export Service...");
+                                source = "Datasphere Export (Live)";
+                                const resourcePath = config.datasphere.movMatPath;
+                                const buffer = await ExportService.exportToCsvBuffer({ resourcePath });
+                                rows = parse(buffer, {
+                                    columns: (header) => header.map(normalizeHeader),
+                                    skip_empty_lines: true,
+                                    trim: true,
+                                    relax_quotes: true
+                                });
+                                if (rows && rows.length > 0) {
+                                    CacheService.set(CACHE_KEY, rows, 10 * 60 * 1000); // 10 min for live data
+                                }
+                            } else {
+                                throw new Error("No hay datos en caché, el CSV local falló y no hay URL de exportación configurada.");
+                            }
                         }
                     }
 
