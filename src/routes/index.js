@@ -14,4 +14,8 @@ router.get("/csv/preview", (req, res) => ChatController.getCsvPreview(req, res))
 router.get("/widget/main.js", (req, res) => WidgetController.serveWidget(req, res));
 router.get("/demo", (req, res) => WidgetController.serveDemo(req, res));
 
+// Export Preview
+const ExportController = require("../controllers/ExportController");
+router.get("/ds/export/preview", (req, res) => ExportController.getPreview(req, res));
+
 module.exports = router;
