@@ -5,8 +5,6 @@ class WidgetController {
   serveWidget(req, res) {
     res.setHeader("Content-Type", "application/javascript");
     res.setHeader("Cache-Control", "no-transform");
-    // Leer archivo de forma síncrona es aceptable para esta escala, o se puede cachear el contenido.
-    // El código original realizaba una lectura síncrona en cada solicitud.
     const widgetPath = path.join(process.cwd(), "public-widget", "main.js");
     try {
       const content = fs.readFileSync(widgetPath, "utf8");
@@ -23,7 +21,7 @@ class WidgetController {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>SAC Gemini Proxy - Demo</title>
+  <title>SAC Gemini Proxy - Copilot</title>
   <style>
     :root {
       --primary: #0a6ed1;
@@ -33,11 +31,16 @@ class WidgetController {
       --text: #32363a;
     }
     body { margin: 0; font-family: "72", "72full", Arial, Helvetica, sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; }
+    
+    /* Header */
     .header { background: #354a5f; color: #fff; padding: 10px 20px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
+    .header-left { display: flex; align-items: center; gap: 10px; }
+    .badge-connected { background: #2b7d2b; color: #fff; font-size: 10px; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; }
+
     .main { flex: 1; display: flex; overflow: hidden; }
     
     /* Sidebar */
-    .sidebar { width: 300px; background: var(--card-bg); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; }
+    .sidebar { width: 300px; background: var(--card-bg); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; transition: width 0.3s ease; }
     .panel { padding: 15px; border-bottom: 1px solid var(--border); }
     .panel h3 { margin: 0 0 10px 0; font-size: 14px; text-transform: uppercase; color: #666; }
     .stat-row { display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 13px; }
@@ -58,20 +61,56 @@ class WidgetController {
     .msg { max-width: 80%; padding: 10px; border-radius: 8px; font-size: 14px; line-height: 1.4; }
     .msg.u { align-self: flex-end; background: #e1f0fa; color: #000; border-bottom-right-radius: 0; }
     .msg.b { align-self: flex-start; background: #f0f0f0; color: #000; border-bottom-left-radius: 0; white-space: pre-wrap; }
-    .input-row { display: flex; gap: 10px; }
-    #inp { flex: 1; padding: 10px; border: 1px solid var(--border); border-radius: 4px; font-family: inherit; }
-    #sendBtn { padding: 10px 20px; }
+    .input-row { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+    
+    #inp { 
+      flex: 1; 
+      height: 40px; 
+      padding: 0 12px; 
+      font-size: 14px; 
+      border-radius: 6px; 
+      border: 1px solid #d9d9d9; 
+      background-color: #ffffff; 
+      box-sizing: border-box; 
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      font-family: inherit;
+    }
+    #inp:focus { outline: none; border-color: #0a6ed1; box-shadow: 0 0 0 2px rgba(10,110,209,0.15); }
+    
+    #sendBtn { 
+      height: 40px; 
+      padding: 0 18px; 
+      font-size: 14px; 
+      font-weight: 500; 
+      border-radius: 6px; 
+      border: none; 
+      background-color: #0a6ed1; 
+      color: #ffffff; 
+      cursor: pointer; 
+      transition: background-color 0.2s ease, transform 0.05s ease; 
+    }
+    #sendBtn:hover { background-color: #0854a0; }
+    #sendBtn:active { transform: scale(0.98); }
+    #sendBtn:disabled { background-color: #b3d3f2; cursor: not-allowed; }
 
     /* Utilities */
     .badge { padding: 2px 6px; border-radius: 10px; font-size: 11px; background: #eee; }
     .badge.ok { background: #e5f9e7; color: #2b7d2b; }
     .badge.err { background: #fcebeb; color: #bb0000; }
+
+    /* Embed Mode (Default) Logic */
+    body.embed-mode .sidebar { display: none; }
+    body.embed-mode .chat-area { width: 100%; }
+    /* Minimal header in embed mode? Or keep it? keeping it for now but maybe simplified */
   </style>
 </head>
 <body>
   <div class="header">
-    <span>SAC Gemini Proxy</span>
-    <span style="font-weight:normal; font-size:12px">v1.0</span>
+    <div class="header-left">
+      <span>AI Copilot – Datasphere</span>
+      <span class="badge-connected">Connected</span>
+    </div>
+    <span style="font-weight:normal; font-size:12px; opacity:0.8">v1.1</span>
   </div>
   
   <div class="main">
@@ -136,8 +175,17 @@ class WidgetController {
 
     const $ = id => document.getElementById(id);
 
+    // --- Mode Logic ---
+    const params = new URLSearchParams(window.location.search);
+    const isAdmin = params.get("admin") === "1";
+    
+    if (!isAdmin) {
+      document.body.classList.add("embed-mode");
+    }
+
     // --- CSV Management Logic ---
     async function updateStatus() {
+      if (!isAdmin) return; // Skip polling in embed mode
       try {
         const r = await fetch(API.status);
         const d = await r.json();
@@ -159,6 +207,7 @@ class WidgetController {
     }
 
     async function updateSummary() {
+      if (!isAdmin) return; // Skip polling in embed mode
       try {
         const r = await fetch(API.summary);
         const d = await r.json();
@@ -166,7 +215,6 @@ class WidgetController {
         if (d.ok) {
           renderTable('tableCentros', d.topCentros);
           renderTable('tableMovs', d.topMovimientos);
-          // Update row count from summary if available
           if (d.rowCount) $('rowCount').textContent = d.rowCount; 
         }
       } catch (e) {
@@ -248,14 +296,18 @@ class WidgetController {
     }
 
     // --- Init ---
-    $('reloadBtn').onclick = reloadData;
+    if (isAdmin) {
+      $('reloadBtn').onclick = reloadData;
+      // Initial Polling in Admin Mode
+      updateStatus();
+      updateSummary();
+    }
+
     $('sendBtn').onclick = sendChat;
     inp.onkeydown = e => { if (e.key === 'Enter') sendChat(); };
 
-    // Initial Load
-    updateStatus();
-    updateSummary();
-    addMsg("Hola 👋. El contexto de datos se actualiza desde el panel izquierdo.", "b");
+    // Initial Message
+    addMsg("Estoy listo para responder preguntas sobre este reporte.", "b");
 
   </script>
 </body>
