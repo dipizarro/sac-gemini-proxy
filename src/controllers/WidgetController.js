@@ -61,37 +61,46 @@ class WidgetController {
     .msg { max-width: 80%; padding: 10px; border-radius: 8px; font-size: 14px; line-height: 1.4; }
     .msg.u { align-self: flex-end; background: #e1f0fa; color: #000; border-bottom-right-radius: 0; }
     .msg.b { align-self: flex-start; background: #f0f0f0; color: #000; border-bottom-left-radius: 0; white-space: pre-wrap; }
-    .input-row { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+    /* Composer Area */
+    .composer { display: flex; gap: 10px; align-items: flex-end; padding: 10px; border-top: 1px solid var(--border); background: #fff; }
     
-    #inp { 
-      flex: 1; 
-      height: 40px; 
-      padding: 0 12px; 
-      font-size: 14px; 
-      border-radius: 6px; 
-      border: 1px solid #d9d9d9; 
-      background-color: #ffffff; 
-      box-sizing: border-box; 
+    .composer__input {
+      flex: 1 1 auto;
+      min-width: 0;
+      height: 40px; /* Base height */
+      max-height: 120px; /* ~5-6 lines */
+      padding: 10px 12px;
+      font-size: 14px;
+      line-height: 20px;
+      border-radius: 6px;
+      border: 1px solid #d9d9d9;
+      background: #ffffff;
+      box-sizing: border-box;
       transition: border-color 0.2s ease, box-shadow 0.2s ease;
       font-family: inherit;
+      resize: none;
+      overflow-y: hidden;
     }
-    #inp:focus { outline: none; border-color: #0a6ed1; box-shadow: 0 0 0 2px rgba(10,110,209,0.15); }
+    .composer__input:focus { outline: none; border-color: #0a6ed1; box-shadow: 0 0 0 2px rgba(10,110,209,0.15); }
     
-    #sendBtn { 
-      height: 40px; 
-      padding: 0 18px; 
-      font-size: 14px; 
-      font-weight: 500; 
-      border-radius: 6px; 
-      border: none; 
-      background-color: #0a6ed1; 
-      color: #ffffff; 
-      cursor: pointer; 
-      transition: background-color 0.2s ease, transform 0.05s ease; 
+    .composer__btn {
+      flex: 0 0 auto;
+      height: 40px;
+      min-width: 80px;
+      padding: 0 16px;
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: 6px;
+      border: none;
+      background: #0a6ed1;
+      color: #ffffff;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background-color 0.2s ease, transform 0.05s ease;
     }
-    #sendBtn:hover { background-color: #0854a0; }
-    #sendBtn:active { transform: scale(0.98); }
-    #sendBtn:disabled { background-color: #b3d3f2; cursor: not-allowed; }
+    .composer__btn:hover { background: #0854a0; }
+    .composer__btn:active { transform: scale(0.98); }
+    .composer__btn:disabled { background: #b3d3f2; cursor: not-allowed; }
 
     /* Utilities */
     .badge { padding: 2px 6px; border-radius: 10px; font-size: 11px; background: #eee; }
@@ -101,7 +110,6 @@ class WidgetController {
     /* Embed Mode (Default) Logic */
     body.embed-mode .sidebar { display: none; }
     body.embed-mode .chat-area { width: 100%; }
-    /* Minimal header in embed mode? Or keep it? keeping it for now but maybe simplified */
   </style>
 </head>
 <body>
@@ -110,7 +118,7 @@ class WidgetController {
       <span>AI Copilot – Datasphere</span>
       <span class="badge-connected">Connected</span>
     </div>
-    <span style="font-weight:normal; font-size:12px; opacity:0.8">v1.1</span>
+    <span style="font-weight:normal; font-size:12px; opacity:0.8">v1.2</span>
   </div>
   
   <div class="main">
@@ -157,9 +165,9 @@ class WidgetController {
     <!-- Chat Interface -->
     <div class="chat-area">
       <div id="msgs"></div>
-      <div class="input-row">
-        <input id="inp" placeholder="Pregunta sobre movimientos, centros, materiales..." />
-        <button id="sendBtn" class="btn">Enviar</button>
+      <div class="composer">
+        <textarea id="inp" class="composer__input" rows="1" placeholder="Pregunta sobre movimientos, centros, materiales..."></textarea>
+        <button id="sendBtn" class="composer__btn">Enviar</button>
       </div>
     </div>
   </div>
@@ -263,6 +271,17 @@ class WidgetController {
     const inp = $('inp');
     const sendBtn = $('sendBtn');
 
+    // Auto-grow logic
+    function autoGrow() {
+      inp.style.height = '40px'; // Reset to base height to calculate shrink
+      const height = Math.min(inp.scrollHeight, 120); // Max 120px
+      inp.style.height = height + 'px';
+      
+      // Overflow Logic
+      inp.style.overflowY = height >= 120 ? 'auto' : 'hidden';
+    }
+    inp.addEventListener('input', autoGrow);
+
     function addMsg(text, type) {
       const div = document.createElement('div');
       div.className = 'msg ' + type;
@@ -277,6 +296,7 @@ class WidgetController {
       
       addMsg(text, 'u');
       inp.value = '';
+      autoGrow(); // Reset height
       sendBtn.disabled = true;
 
       try {
@@ -304,7 +324,14 @@ class WidgetController {
     }
 
     $('sendBtn').onclick = sendChat;
-    inp.onkeydown = e => { if (e.key === 'Enter') sendChat(); };
+    
+    // Handle Enter vs Shift+Enter
+    inp.onkeydown = e => { 
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendChat();
+      }
+    };
 
     // Initial Message
     addMsg("Estoy listo para responder preguntas sobre este reporte.", "b");
