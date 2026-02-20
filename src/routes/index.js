@@ -23,5 +23,7 @@ const CsvController = require("../controllers/CsvController");
 router.get("/csv/status", (req, res) => CsvController.getStatus(req, res));
 router.post("/csv/reload", (req, res) => CsvController.reload(req, res));
 router.get("/csv/summary", (req, res) => CsvController.getSummary(req, res));
+router.get("/csv/profile", (req, res) => CsvController.getProfile(req, res));
+router.get("/csv/query/distinct-centers", (req, res) => CsvController.getDistinctCenters(req, res));
 
 module.exports = router;

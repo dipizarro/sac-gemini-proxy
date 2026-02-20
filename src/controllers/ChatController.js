@@ -19,6 +19,70 @@ class ChatController {
             const lowerMsg = message.toLowerCase();
             const needsData = keywords.some(k => lowerMsg.includes(k));
 
+            // --- EXACT COUNT INTENT DETECTION (Hybrid Engine) ---
+            // Regex for explicit formats: YYYY-MM-DD, DD/MM/YYYY
+            const dateRegexParams = /(\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{4})/;
+
+            // Regex for natural Spanish: "1 de enero del 2024", "10 de mayo 2024"
+            const monthsSpan = "enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre";
+            const dateRegexNatural = new RegExp(`(\\d{1,2})\\s+de\\s+(${monthsSpan})\\s+(?:de|del)?\\s+(\\d{4})`, "i");
+
+            // Keywords: cuantos/cuántos AND centros/centro
+            const isCountQuestion = (lowerMsg.includes("cuantos") || lowerMsg.includes("cuántos"))
+                && lowerMsg.includes("centro");
+
+            let dateKey = null;
+
+            if (isCountQuestion) {
+                if (dateRegexParams.test(message)) {
+                    // 2024-01-01 or 01/01/2024
+                    let m = message.match(dateRegexParams)[0];
+                    if (m.includes("/")) {
+                        const [d, mo, y] = m.split("/");
+                        dateKey = `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
+                    } else {
+                        dateKey = m;
+                    }
+                } else if (dateRegexNatural.test(lowerMsg)) {
+                    // 1 de enero del 2024
+                    const m = lowerMsg.match(dateRegexNatural);
+                    const d = m[1].padStart(2, '0');
+                    const monthName = m[2];
+                    const y = m[3];
+
+                    const monthMap = {
+                        enero: "01", febrero: "02", marzo: "03", abril: "04", mayo: "05", junio: "06",
+                        julio: "07", agosto: "08", septiembre: "09", octubre: "10", noviembre: "11", diciembre: "12"
+                    };
+                    dateKey = `${y}-${monthMap[monthName]}-${d}`;
+                }
+            }
+
+            if (dateKey) {
+                try {
+                    const profile = require("../utils/profile");
+                    const t0 = profile.nowMs();
+
+                    const QueryService = require("../services/QueryService");
+                    const result = QueryService.countDistinctCentersByDate(dateKey);
+
+                    const t1 = profile.nowMs();
+                    const timing = Math.round(t1 - t0);
+
+                    return res.json({
+                        reply: `Para la fecha **${dateKey}** (detectada como ${result.date}), encontré **${result.distinctCenters}** centros distintos con movimientos registrados.`,
+                        meta: {
+                            engine: "query",
+                            executionMs: timing,
+                            evidenceSample: result.sampleCenters
+                        }
+                    });
+                } catch (idxErr) {
+                    console.error("QueryService Error:", idxErr);
+                }
+            }
+            // ------------------------------------
+
             let context = "";
 
             if (needsData) {
@@ -95,8 +159,48 @@ Instrucciones:
                 }
             } else {
                 // Fallback a CSV estático si no pide datos explícitos (comportamiento actual)
+                // OJO: Si RICH_SUMMARY está activo, podríamos querer usarlo aquí también, 
+                // pero la lógica original era DataService.getInsights(). Respetamos eso por ahora.
                 context = DataService.getInsights();
             }
+
+            // --- RICH SUMMARY INTEGRATION ---
+            const useRich = config.richSummary || req.query.rich === "1";
+            if (useRich && needsData) {
+                try {
+                    // Force load full dataset from cache or disk
+                    const CACHE_KEY = "MOVMAT_DATA";
+                    let rows = CacheService.get(CACHE_KEY);
+                    if (!rows || rows.length === 0) {
+                        rows = DataService.loadMovMatCsv();
+                        CacheService.set(CACHE_KEY, rows, 24 * 60 * 60 * 1000);
+                    }
+
+                    // Build Rich Summary
+                    const SummaryService = require("../services/SummaryService");
+                    const richData = SummaryService.buildRichSummary(rows);
+
+                    context = `
+CONTEXTO EXTENDIDO (Rich Summary Mode):
+- Total de registros: ${richData.rowCount}
+- Columnas: ${richData.columns.join(", ")}
+- Top 20 Centros: ${JSON.stringify(richData.topCentros)}
+- Top 20 Movimientos: ${JSON.stringify(richData.topMovimientos)}
+- Top 20 Materiales: ${JSON.stringify(richData.topMateriales)}
+- Estadísticas ${richData.numericStats ? richData.numericStats.column : 'N/A'}: ${JSON.stringify(richData.numericStats)}
+- Muestra Diversa: ${JSON.stringify(richData.sampleRows)}
+
+INSTRUCCIONES:
+- Tienes acceso a un resumen detallado. Úsalo para responder preguntas complejas sobre distribución, valores máximos/mínimos y tendencias.
+- Si falta algún filtro específico (ej. fecha exacta), pídelo.
+`;
+                } catch (richErr) {
+                    console.error("Rich Summary Failed:", richErr);
+                    // Fallback to standard context (already set)
+                }
+            }
+            // -------------------------------
+
 
             // 2) Genera Response usando AI
             const response = await GeminiService.generateResponse(message, history, context);

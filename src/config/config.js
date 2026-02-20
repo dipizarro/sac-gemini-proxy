@@ -18,6 +18,7 @@ module.exports = {
             clientSecret: process.env.DS_CLIENT_SECRET,
         }
     },
+    richSummary: process.env.RICH_SUMMARY === "1",
     cors: {
         allowedOrigins: (process.env.ALLOWED_ORIGINS || "")
             .split(",")

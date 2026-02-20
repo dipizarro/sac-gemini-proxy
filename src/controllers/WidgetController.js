@@ -115,7 +115,7 @@ class WidgetController {
 <body>
   <div class="header">
     <div class="header-left">
-      <span>AI Copilot – Datasphere</span>
+      <span>AI Copilot</span>
       <span class="badge-connected">Connected</span>
     </div>
     <span style="font-weight:normal; font-size:12px; opacity:0.8">v1.2</span>
@@ -282,10 +282,31 @@ class WidgetController {
     }
     inp.addEventListener('input', autoGrow);
 
-    function addMsg(text, type) {
+    function addMsg(text, type, meta) {
       const div = document.createElement('div');
       div.className = 'msg ' + type;
-      div.textContent = text;
+      
+      // Badge Logic
+      if (type === 'b' && meta && meta.engine) {
+          const badge = document.createElement('div');
+          badge.style.fontSize = '10px';
+          badge.style.marginBottom = '4px';
+          badge.style.fontWeight = 'bold';
+          
+          if (meta.engine === 'query') {
+              badge.textContent = '🟢 Query Engine (Exacto)';
+              badge.style.color = '#2b7d2b';
+          } else {
+              badge.textContent = '🔵 AI Analysis';
+              badge.style.color = '#0a6ed1';
+          }
+          div.appendChild(badge);
+      }
+
+      const content = document.createElement('div');
+      content.textContent = text;
+      div.appendChild(content);
+
       msgs.appendChild(div);
       msgs.scrollTop = msgs.scrollHeight;
     }
@@ -306,7 +327,7 @@ class WidgetController {
           body: JSON.stringify({ message: text })
         });
         const d = await r.json();
-        addMsg(d.reply || "(Sin respuesta)", 'b');
+        addMsg(d.reply || "(Sin respuesta)", 'b', d.meta);
       } catch (e) {
         addMsg("Error de conexión", 'b');
       } finally {
