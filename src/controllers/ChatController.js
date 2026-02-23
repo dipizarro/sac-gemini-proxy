@@ -64,6 +64,32 @@ class ChatController {
                 });
             }
 
+            if (route.intent === "top_centers_by_movements_on_date") {
+                const dateKey = route.slots.date;
+                const topN = route.slots.topN || 5;
+                const result = QueryEngineService.topCentersByMovementsOnDate(rows, dateKey, topN);
+
+                // Build a nice reply string
+                let reply = `El ${result.date}, los ${result.topN} centros con más movimientos fueron:\n`;
+                result.results.forEach((item, index) => {
+                    reply += `${index + 1}) Centro ${item.center}: ${item.movements} movimientos\n`;
+                });
+
+                return res.json({
+                    reply: reply.trim(),
+                    meta: {
+                        engine: "query",
+                        exact: true,
+                        intent: route.intent,
+                        date: result.date,
+                        topN: result.topN
+                    },
+                    data: result.results,
+                    totals: result.totals,
+                    evidence: result.evidence
+                });
+            }
+
             // 5. Si la intención no es mapeable a Query Engine, usar Gemini "Normal"
             const context = `
             Eres un asistente experto en el reporte de Movimientos de Materiales.
@@ -111,6 +137,30 @@ class ChatController {
             });
         } catch (err) {
             console.error("getCsvMovementsByDate Error:", err);
+            return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });
+        }
+    }
+
+    async getCsvTopCentersByMovements(req, res) {
+        try {
+            const { date, top } = req.query;
+            if (!date) {
+                return res.status(400).json({ ok: false, error: "Missing 'date' query parameter (YYYY-MM-DD)" });
+            }
+
+            const topN = top ? parseInt(top, 10) : 5;
+            const QueryEngineService = require("../services/QueryEngineService");
+            const rows = await DataService.getRowsCached();
+            const result = QueryEngineService.topCentersByMovementsOnDate(rows, date, topN);
+
+            return res.json({
+                ok: true,
+                date: result.date,
+                results: result.results,
+                totals: result.totals
+            });
+        } catch (err) {
+            console.error("getCsvTopCentersByMovements Error:", err);
             return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });
         }
     }

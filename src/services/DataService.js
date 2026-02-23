@@ -161,14 +161,40 @@ class DataService {
      */
     async getRowsCached() {
         const CacheService = require("./CacheService");
+        const config = require("../config/config");
         const CACHE_KEY = "MOVMAT_DATA";
         let rows = CacheService.get(CACHE_KEY);
 
         if (!rows) {
-            console.log("DataService: Cache miss, loading local CSV...");
-            rows = this.loadMovMatCsv();
-            if (rows && rows.length > 0) {
-                CacheService.set(CACHE_KEY, rows, 24 * 60 * 60 * 1000);
+            try {
+                console.log("DataService: Cache miss, loading local CSV...");
+                rows = this.loadMovMatCsv();
+                if (rows && rows.length > 0) {
+                    CacheService.set(CACHE_KEY, rows, 24 * 60 * 60 * 1000);
+                }
+            } catch (csvErr) {
+                console.warn("Local CSV load failed:", csvErr.message);
+
+                if (config.datasphere.exportUrl) {
+                    console.log("Fetching from Datasphere Export Service...");
+                    const ExportService = require("./ExportService");
+                    const { parse } = require("csv-parse/sync");
+                    const { normalizeHeader } = require("../utils/helpers");
+
+                    const resourcePath = config.datasphere.movMatPath;
+                    const buffer = await ExportService.exportToCsvBuffer({ resourcePath });
+                    rows = parse(buffer, {
+                        columns: (header) => header.map(normalizeHeader),
+                        skip_empty_lines: true,
+                        trim: true,
+                        relax_quotes: true
+                    });
+                    if (rows && rows.length > 0) {
+                        CacheService.set(CACHE_KEY, rows, 10 * 60 * 1000); // 10 min for live data
+                    }
+                } else {
+                    throw new Error("No hay datos en caché, el CSV local falló y no hay URL de exportación configurada.");
+                }
             }
         }
         return rows || [];
