@@ -13,12 +13,12 @@ class ChatController {
             const IntentRouterService = require("../services/IntentRouterService");
             const QueryEngineService = require("../services/QueryEngineService");
 
-            // 1. Obtener datos (cache/CSV)
+            // 1. Obtener datos cacheados
             const rows = await DataService.getRowsCached();
 
-            // 2. Clasificar intención + extraer slots (LLM)
-            const route = await IntentRouterService.route(message);
-
+            // 2. Extraer intención usando Router (ahora con contexto del dataset para defaults)
+            const route = await IntentRouterService.route(message, rows);
+            console.log("IntentRouter Result:", route);
             // 3. Si falta información crucial, preguntar al usuario
             if (route.needs_clarification) {
                 return res.json({
@@ -107,13 +107,68 @@ class ChatController {
                 });
             }
 
-            // 5. Si la intención no es mapeable a Query Engine, usar Gemini "Normal"
+            // 5. Soporte para AI Analysis con Insights (Sin alucinaciones)
+            const insightIntents = [
+                "compare_activity_by_months",
+                "patterns_in_quarter",
+                "max_active_centers_day",
+                "prioritize_centers_over_period"
+            ];
+
+            if (insightIntents.includes(route.intent)) {
+                const InsightEngineService = require("../services/InsightEngineService");
+                let insights = null;
+
+                if (route.intent === "compare_activity_by_months") {
+                    insights = InsightEngineService.compareMonths(rows, route.slots.year, route.slots.months[0], route.slots.months[1], route.slots.metric);
+                } else if (route.intent === "patterns_in_quarter") {
+                    insights = InsightEngineService.quarterPatterns(rows, route.slots.year, route.slots.quarter);
+                } else if (route.intent === "max_active_centers_day") {
+                    insights = InsightEngineService.maxActiveCentersDay(rows, route.slots.year);
+                } else if (route.intent === "prioritize_centers_over_period") {
+                    insights = InsightEngineService.prioritizeCenters(rows, { year: route.slots.year });
+                }
+
+                // Prompt estricto instruyendo a Gemini a solo redactar sobre estos insights
+                const strictPrompt = `
+                Responde SOLO usando los INSIGHTS entregados a continuación en formato JSON. 
+                No digas 'no tengo acceso'. No pidas consultar reportes. Si notas que falta algo grave en el JSON, haz UNA pregunta de aclaración.
+                Redacta un texto claro y directo, usando 2-4 bullets con cifras.
+                Si estás comparando meses, incluye el ganador.
+                
+                JSON INSIGHTS:
+                ${JSON.stringify(insights, null, 2)}
+                `;
+
+                const aiResponse = await GeminiService.generateResponse(message, history, strictPrompt);
+                let textReply = aiResponse.reply;
+
+                // UX: Fallback de seguridad por si Gemini se disculpa
+                const excusas = ["no tengo acceso", "necesitaría consultar", "por favor proporcione", "no puedo determinar"];
+                if (excusas.some(exc => textReply.toLowerCase().includes(exc))) {
+                    textReply = "Para responder con exactitud, indícame el periodo o revisa tu consulta.";
+                }
+
+                // Anexar defaults de contexto (Profile Defaults)
+                if (route.assumptions && route.assumptions.length > 0) {
+                    textReply += "\n\n*(Nota: " + route.assumptions.join(", ") + ")*";
+                }
+
+                return res.json({
+                    reply: textReply,
+                    meta: { engine: "ai", intent: route.intent, insights_provided: true, assumptions: route.assumptions }
+                });
+            }
+
+            // 6. Si la intención es unknown o totalmente fuera del radar
             const context = `
             Eres un asistente experto en el reporte de Movimientos de Materiales.
             El usuario hace una pregunta general o fuera del flujo de consulta exacta.
             Responde de forma profesional y directa. No menciones el tamaño del dataset ni que estás viendo una muestra.
-            Si no sabes algo basándote en el contexto, simplemente indícalo cordialmente.
+            Bajo NINGUNA circunstancia digas que "no tienes acceso" a los datos.
+            Si no lo sabes, pide que te especifique fechas, centros o tipo de informe.
             `;
+
 
             const response = await GeminiService.generateResponse(message, history, context);
             return res.json({
@@ -201,6 +256,59 @@ class ChatController {
             });
         } catch (err) {
             console.error("getCsvDistinctCentersRange Error:", err);
+            return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });
+        }
+    }
+
+    // --- Endpoints para Insight Engine ---
+
+    async getCsvInsightCompareMonths(req, res) {
+        try {
+            const { year, a, b, metric } = req.query;
+            if (!year || !a || !b) return res.status(400).json({ ok: false, error: "Missing year, a, or b" });
+            const InsightEngineService = require("../services/InsightEngineService");
+            const rows = await DataService.getRowsCached();
+            const result = InsightEngineService.compareMonths(rows, parseInt(year), parseInt(a), parseInt(b), metric || "movements");
+            return res.json({ ok: true, ...result });
+        } catch (err) {
+            return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });
+        }
+    }
+
+    async getCsvInsightMaxActiveDay(req, res) {
+        try {
+            const { year } = req.query;
+            if (!year) return res.status(400).json({ ok: false, error: "Missing year" });
+            const InsightEngineService = require("../services/InsightEngineService");
+            const rows = await DataService.getRowsCached();
+            const result = InsightEngineService.maxActiveCentersDay(rows, parseInt(year));
+            return res.json({ ok: true, ...result });
+        } catch (err) {
+            return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });
+        }
+    }
+
+    async getCsvInsightQuarter(req, res) {
+        try {
+            const { year, q } = req.query;
+            if (!year || !q) return res.status(400).json({ ok: false, error: "Missing year or q" });
+            const InsightEngineService = require("../services/InsightEngineService");
+            const rows = await DataService.getRowsCached();
+            const result = InsightEngineService.quarterPatterns(rows, parseInt(year), parseInt(q));
+            return res.json({ ok: true, ...result });
+        } catch (err) {
+            return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });
+        }
+    }
+
+    async getCsvInsightPrioritize(req, res) {
+        try {
+            const { year } = req.query;
+            const InsightEngineService = require("../services/InsightEngineService");
+            const rows = await DataService.getRowsCached();
+            const result = InsightEngineService.prioritizeCenters(rows, { year: year ? parseInt(year) : null });
+            return res.json({ ok: true, ...result });
+        } catch (err) {
             return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });
         }
     }

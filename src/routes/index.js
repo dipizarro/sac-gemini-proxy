@@ -29,6 +29,11 @@ router.get("/csv/query/movements", (req, res) => ChatController.getCsvMovementsB
 router.get("/csv/query/top-centers", (req, res) => ChatController.getCsvTopCentersByMovements(req, res));
 router.get("/csv/query/distinct-centers-range", (req, res) => ChatController.getCsvDistinctCentersRange(req, res));
 
+// Insight Engine Endpoints
+router.get("/csv/insights/compare-months", (req, res) => ChatController.getCsvInsightCompareMonths(req, res));
+router.get("/csv/insights/max-active-day", (req, res) => ChatController.getCsvInsightMaxActiveDay(req, res));
+router.get("/csv/insights/quarter", (req, res) => ChatController.getCsvInsightQuarter(req, res));
+router.get("/csv/insights/prioritize", (req, res) => ChatController.getCsvInsightPrioritize(req, res));
 
 
 module.exports = router;

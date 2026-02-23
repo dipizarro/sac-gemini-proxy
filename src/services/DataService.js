@@ -199,6 +199,15 @@ class DataService {
         }
         return rows || [];
     }
+
+    clearCache() {
+        const CacheService = require("./CacheService");
+        CacheService.del("MOVMAT_DATA");
+        // Clean dependent items like the dataset profile
+        const DatasetProfileService = require("./DatasetProfileService");
+        DatasetProfileService.clearProfileCache();
+        console.log("DataService: All local caches cleared.");
+    }
 }
 
 module.exports = new DataService();
