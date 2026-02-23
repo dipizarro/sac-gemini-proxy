@@ -27,6 +27,8 @@ router.get("/csv/profile", (req, res) => CsvController.getProfile(req, res));
 router.get("/csv/query/distinct-centers", (req, res) => CsvController.getDistinctCenters(req, res));
 router.get("/csv/query/movements", (req, res) => ChatController.getCsvMovementsByDate(req, res));
 router.get("/csv/query/top-centers", (req, res) => ChatController.getCsvTopCentersByMovements(req, res));
+router.get("/csv/query/distinct-centers-range", (req, res) => ChatController.getCsvDistinctCentersRange(req, res));
+
 
 
 module.exports = router;

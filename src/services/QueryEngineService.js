@@ -141,6 +141,68 @@ class QueryEngineService {
 
         return response;
     }
+
+    /**
+     * Devuelve la cantidad de centros distintos que tuvieron movimientos en un rango de fechas.
+     * @param {Array} rows - Full dataset
+     * @param {string} from - Fecha inicial YYYY-MM-DD
+     * @param {string} to - Fecha final YYYY-MM-DD
+     */
+    countDistinctCentersByDateRange(rows, from, to) {
+        const defaultEmpty = { from, to, distinctCenters: 0 };
+
+        if (!rows || rows.length === 0 || !from || !to) return defaultEmpty;
+
+        // Auto-detect columns
+        const firstRow = rows[0];
+        const cols = Object.keys(firstRow);
+        const dateCol = cols.find(c => c === "FECHA") || cols.find(c => c.includes("FECHA")) || cols.find(c => c.includes("DATE"));
+        const centerCol = cols.find(c => c === "ID_CENTRO") || cols.find(c => c.includes("CENTRO")) || cols.find(c => c.includes("PLANT"));
+
+        if (!dateCol || !centerCol) {
+            console.warn("QueryEngineService: Could not detect date/center column for countDistinctCentersByDateRange.");
+            return defaultEmpty;
+        }
+
+        const distinctCentersSet = new Set();
+        const sampleCentersSet = new Set();
+
+        const isSampleEnabled = process.env.EVIDENCE_SAMPLE === "1";
+
+        // Iterar las filas y filtrar por rango
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            const rawDate = row[dateCol];
+            const dateKey = IndexService.normalizeDate(rawDate);
+
+            // Check if date is within range (string comparison works for YYYY-MM-DD)
+            if (dateKey >= from && dateKey <= to) {
+                const center = row[centerCol];
+                if (center) {
+                    distinctCentersSet.add(center);
+                    // Coleccionar muestra si es necesario
+                    if (isSampleEnabled && sampleCentersSet.size < 10) {
+                        sampleCentersSet.add(center);
+                    }
+                }
+            }
+        }
+
+        const response = {
+            from,
+            to,
+            distinctCenters: distinctCentersSet.size
+        };
+
+        if (isSampleEnabled) {
+            response.evidence = {
+                sampleCenters: Array.from(sampleCentersSet)
+            };
+        }
+
+        return response;
+    }
 }
 
 module.exports = new QueryEngineService();
+

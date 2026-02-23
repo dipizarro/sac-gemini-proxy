@@ -90,6 +90,23 @@ class ChatController {
                 });
             }
 
+            if (route.intent === "count_distinct_centers_by_date_range") {
+                const { from, to } = route.slots;
+                const result = QueryEngineService.countDistinctCentersByDateRange(rows, from, to);
+
+                return res.json({
+                    reply: `Entre el ${result.from} y el ${result.to}, ${result.distinctCenters} centros tuvieron movimientos registrados.`,
+                    meta: {
+                        engine: "query",
+                        exact: true,
+                        intent: route.intent,
+                        from: result.from,
+                        to: result.to
+                    },
+                    evidence: result.evidence
+                });
+            }
+
             // 5. Si la intención no es mapeable a Query Engine, usar Gemini "Normal"
             const context = `
             Eres un asistente experto en el reporte de Movimientos de Materiales.
@@ -161,6 +178,29 @@ class ChatController {
             });
         } catch (err) {
             console.error("getCsvTopCentersByMovements Error:", err);
+            return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });
+        }
+    }
+
+    async getCsvDistinctCentersRange(req, res) {
+        try {
+            const { from, to } = req.query;
+            if (!from || !to) {
+                return res.status(400).json({ ok: false, error: "Missing 'from' or 'to' query parameter (YYYY-MM-DD)" });
+            }
+
+            const QueryEngineService = require("../services/QueryEngineService");
+            const rows = await DataService.getRowsCached();
+            const result = QueryEngineService.countDistinctCentersByDateRange(rows, from, to);
+
+            return res.json({
+                ok: true,
+                from: result.from,
+                to: result.to,
+                distinctCenters: result.distinctCenters
+            });
+        } catch (err) {
+            console.error("getCsvDistinctCentersRange Error:", err);
             return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });
         }
     }
