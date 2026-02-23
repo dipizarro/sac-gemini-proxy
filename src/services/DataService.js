@@ -155,6 +155,24 @@ class DataService {
             throw new Error(`Failed to fetch MovMat data: ${error.message}`);
         }
     }
+    /**
+     * Obtains rows from cache or loads them from CSV.
+     * @returns {Array} rows
+     */
+    async getRowsCached() {
+        const CacheService = require("./CacheService");
+        const CACHE_KEY = "MOVMAT_DATA";
+        let rows = CacheService.get(CACHE_KEY);
+
+        if (!rows) {
+            console.log("DataService: Cache miss, loading local CSV...");
+            rows = this.loadMovMatCsv();
+            if (rows && rows.length > 0) {
+                CacheService.set(CACHE_KEY, rows, 24 * 60 * 60 * 1000);
+            }
+        }
+        return rows || [];
+    }
 }
 
 module.exports = new DataService();

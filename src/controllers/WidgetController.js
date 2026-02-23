@@ -282,10 +282,13 @@ class WidgetController {
     }
     inp.addEventListener('input', autoGrow);
 
-    function addMsg(text, type, meta) {
+    function addMsg(text, type, data) {
       const div = document.createElement('div');
       div.className = 'msg ' + type;
       
+      const meta = data?.meta;
+      const evidence = data?.evidence;
+
       // Badge Logic
       if (type === 'b' && meta && meta.engine) {
           const badge = document.createElement('div');
@@ -307,6 +310,29 @@ class WidgetController {
       content.textContent = text;
       div.appendChild(content);
 
+      // Evidence Logic (Sample Centers)
+      if (type === 'b' && evidence && evidence.sampleCenters && evidence.sampleCenters.length > 0) {
+          const evidenceDiv = document.createElement('div');
+          evidenceDiv.style.marginTop = '8px';
+          evidenceDiv.style.padding = '8px';
+          evidenceDiv.style.background = '#fff';
+          evidenceDiv.style.borderRadius = '4px';
+          evidenceDiv.style.border = '1px solid #ddd';
+          evidenceDiv.style.fontSize = '12px';
+          
+          const title = document.createElement('div');
+          title.textContent = 'Muestra de evidencia (Centros):';
+          title.style.fontWeight = 'bold';
+          title.style.marginBottom = '4px';
+          evidenceDiv.appendChild(title);
+          
+          const list = document.createElement('div');
+          list.textContent = evidence.sampleCenters.join(', ');
+          evidenceDiv.appendChild(list);
+          
+          div.appendChild(evidenceDiv);
+      }
+
       msgs.appendChild(div);
       msgs.scrollTop = msgs.scrollHeight;
     }
@@ -327,7 +353,7 @@ class WidgetController {
           body: JSON.stringify({ message: text })
         });
         const d = await r.json();
-        addMsg(d.reply || "(Sin respuesta)", 'b', d.meta);
+        addMsg(d.reply || "(Sin respuesta)", 'b', d);
       } catch (e) {
         addMsg("Error de conexión", 'b');
       } finally {

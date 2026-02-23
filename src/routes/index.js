@@ -25,5 +25,6 @@ router.post("/csv/reload", (req, res) => CsvController.reload(req, res));
 router.get("/csv/summary", (req, res) => CsvController.getSummary(req, res));
 router.get("/csv/profile", (req, res) => CsvController.getProfile(req, res));
 router.get("/csv/query/distinct-centers", (req, res) => CsvController.getDistinctCenters(req, res));
+router.get("/csv/query/movements", (req, res) => ChatController.getCsvMovementsByDate(req, res));
 
 module.exports = router;
