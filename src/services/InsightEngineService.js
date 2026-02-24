@@ -297,6 +297,65 @@ class InsightEngineService {
         };
     }
 
+    /**
+     * Calcula la suma de SUMA_NETA por mes y compara dos meses.
+     */
+    compareSumaNetaMonths(rows, year, monthA, monthB) {
+        if (!rows || rows.length === 0) return { error: "No data" };
+        const { dateCol, sumaNetaCol } = this._detectCols(rows);
+
+        if (!sumaNetaCol) {
+            return { error: "MISSING_METRIC_SUMANETA" };
+        }
+
+        const yearStr = year.toString();
+        let sumA = 0;
+        let sumB = 0;
+
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            const rawDate = row[dateCol];
+            const dateKey = IndexService.normalizeDate(rawDate);
+
+            if (dateKey.startsWith(yearStr)) {
+                const month = parseInt(dateKey.substring(5, 7), 10);
+
+                if (month === monthA || month === monthB) {
+                    const rawVal = row[sumaNetaCol];
+                    // Asegurar casteo flotante seguro
+                    let val = parseFloat(rawVal);
+                    if (isNaN(val)) val = 0;
+
+                    if (month === monthA) sumA += val;
+                    else if (month === monthB) sumB += val;
+                }
+            }
+        }
+
+        let winner = "empate";
+        if (sumA > sumB) winner = "Mes A";
+        else if (sumB > sumA) winner = "Mes B";
+
+        const diffAbs = Math.abs(sumB - sumA);
+        const maxAbs = Math.max(Math.abs(sumA), Math.abs(sumB));
+
+        let diffPct = 0;
+        if (maxAbs > 0) {
+            diffPct = (diffAbs / maxAbs) * 100;
+        }
+
+        return {
+            year,
+            monthA,
+            monthB,
+            sumA,
+            sumB,
+            winner,
+            diffAbs,
+            diffPct
+        };
+    }
+
     // --- Helpers Privados ---
 
     _detectCols(rows) {
@@ -305,7 +364,8 @@ class InsightEngineService {
         const dateCol = cols.find(c => c === "FECHA") || cols.find(c => c.includes("FECHA")) || cols.find(c => c.includes("DATE"));
         const centerCol = cols.find(c => c === "ID_CENTRO") || cols.find(c => c.includes("CENTRO")) || cols.find(c => c.includes("PLANT"));
         const movClassCol = cols.find(c => c === "CLASE_MOVIMIENTO") || cols.find(c => c.includes("CLASE")) || cols.find(c => c.includes("MOV_TYPE") || c.includes("BWART"));
-        return { dateCol, centerCol, movClassCol };
+        const sumaNetaCol = cols.find(c => c === "SUMA_NETA") || cols.find(c => c.toUpperCase().includes("SUMA_NETA"));
+        return { dateCol, centerCol, movClassCol, sumaNetaCol };
     }
 
     _topFromMap(map, n) {

@@ -113,13 +113,15 @@ class ChatController {
                 "patterns_in_quarter",
                 "max_active_centers_day",
                 "prioritize_centers_over_period",
-                "diff_distinct_centers_between_months"
+                "diff_distinct_centers_between_months",
+                "compare_suma_neta_between_months"
             ];
 
             if (insightIntents.includes(route.intent)) {
                 const InsightEngineService = require("../services/InsightEngineService");
                 let insights = null;
                 let textReply = "";
+                const monthNames = ["", "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
 
                 if (route.intent === "compare_activity_by_months") {
                     insights = InsightEngineService.compareMonths(rows, route.slots.year, route.slots.months[0], route.slots.months[1], route.slots.metric);
@@ -132,7 +134,6 @@ class ChatController {
                 } else if (route.intent === "diff_distinct_centers_between_months") {
                     insights = InsightEngineService.diffDistinctCentersMonths(rows, route.slots.year, route.slots.months[0], route.slots.months[1]);
 
-                    const monthNames = ["", "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
                     const nameA = monthNames[insights.monthA] || `Mes ${insights.monthA}`;
                     const nameB = monthNames[insights.monthB] || `Mes ${insights.monthB}`;
 
@@ -151,6 +152,38 @@ class ChatController {
                     return res.json({
                         reply: textReply,
                         meta: { engine: "insight", intent: route.intent, metric: "distinctCenters", assumptions: route.assumptions },
+                        data: insights
+                    });
+                } else if (route.intent === "compare_suma_neta_between_months") {
+                    insights = InsightEngineService.compareSumaNetaMonths(rows, route.slots.year, route.slots.months[0], route.slots.months[1]);
+
+                    if (insights.error === "MISSING_METRIC_SUMANETA") {
+                        return res.json({
+                            reply: "Lo siento, este archivo de datos actual no contiene la columna de montos o volúmenes esperada ('SUMA_NETA') para realizar esta comparativa.",
+                            meta: { engine: "insight", intent: route.intent, metric: "sumaNeta", error: insights.error }
+                        });
+                    }
+
+                    const nameA = monthNames[insights.monthA] || `Mes ${insights.monthA}`;
+                    const nameB = monthNames[insights.monthB] || `Mes ${insights.monthB}`;
+
+                    const formatNum = (num) => new Intl.NumberFormat('es-CL').format(num);
+                    const winnerName = (insights.winner === "Mes A") ? nameA : (insights.winner === "Mes B") ? nameB : "Ambos (Empate)";
+
+                    textReply = `Entre ${nameA} y ${nameB} de ${insights.year}, el mayor volumen total (SUMA_NETA) fue de **${winnerName}**.\n\n`;
+                    textReply += `| Mes | Volumen Agrupado |\n`;
+                    textReply += `|---|---|\n`;
+                    textReply += `| ${nameA.charAt(0).toUpperCase() + nameA.slice(1)} | ${formatNum(insights.sumA)} |\n`;
+                    textReply += `| ${nameB.charAt(0).toUpperCase() + nameB.slice(1)} | ${formatNum(insights.sumB)} |\n`;
+                    textReply += `| **Diferencia** | **${formatNum(insights.diffAbs)}** (${insights.diffPct.toFixed(1)}%) |\n`;
+
+                    if (route.assumptions && route.assumptions.length > 0) {
+                        textReply += "\n*(Nota: " + route.assumptions.join(", ") + ")*";
+                    }
+
+                    return res.json({
+                        reply: textReply,
+                        meta: { engine: "insight", intent: route.intent, metric: "sumaNeta", assumptions: route.assumptions },
                         data: insights
                     });
                 }
@@ -346,6 +379,20 @@ class ChatController {
             const InsightEngineService = require("../services/InsightEngineService");
             const rows = await DataService.getRowsCached();
             const result = InsightEngineService.diffDistinctCentersMonths(rows, parseInt(year), parseInt(a), parseInt(b));
+            return res.json({ ok: true, ...result });
+        } catch (err) {
+            return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });
+        }
+    }
+
+    async getCsvInsightCompareSumaNeta(req, res) {
+        try {
+            const { year, a, b } = req.query;
+            if (!year || !a || !b) return res.status(400).json({ ok: false, error: "Missing year, a, or b" });
+            const InsightEngineService = require("../services/InsightEngineService");
+            const rows = await DataService.getRowsCached();
+            const result = InsightEngineService.compareSumaNetaMonths(rows, parseInt(year), parseInt(a), parseInt(b));
+            if (result.error) return res.status(400).json({ ok: false, ...result });
             return res.json({ ok: true, ...result });
         } catch (err) {
             return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });

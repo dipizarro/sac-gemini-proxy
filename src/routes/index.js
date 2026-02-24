@@ -35,5 +35,6 @@ router.get("/csv/insights/max-active-day", (req, res) => ChatController.getCsvIn
 router.get("/csv/insights/quarter", (req, res) => ChatController.getCsvInsightQuarter(req, res));
 router.get("/csv/insights/prioritize", (req, res) => ChatController.getCsvInsightPrioritize(req, res));
 router.get("/csv/insights/diff-centers", (req, res) => ChatController.getCsvInsightDiffCenters(req, res));
+router.get("/csv/insights/compare-sumaneta", (req, res) => ChatController.getCsvInsightCompareSumaNeta(req, res));
 
 module.exports = router;
