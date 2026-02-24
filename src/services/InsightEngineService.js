@@ -544,6 +544,8 @@ class InsightEngineService {
 
         return {
             year,
+            monthA,
+            monthB,
             metricKey,
             a: resA,
             b: resB,
