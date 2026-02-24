@@ -1,4 +1,5 @@
 const IndexService = require("./IndexService");
+const { toNumberSmart } = require("../utils/helpers");
 
 class InsightEngineService {
     /**
@@ -322,9 +323,7 @@ class InsightEngineService {
 
                 if (month === monthA || month === monthB) {
                     const rawVal = row[sumaNetaCol];
-                    // Asegurar casteo flotante seguro
-                    let val = parseFloat(rawVal);
-                    if (isNaN(val)) val = 0;
+                    const val = toNumberSmart(rawVal);
 
                     if (month === monthA) sumA += val;
                     else if (month === monthB) sumB += val;
@@ -506,13 +505,7 @@ class InsightEngineService {
                 if (rowMonth === month) {
                     let val = row[metricKey];
                     if (val !== undefined && val !== null && val !== "") {
-                        // Soportar `,` como separador decimal
-                        const valStr = val.toString().trim();
-                        // Remover caracteres de puntuacion ajenos a menos que sea un float (ej $1.000,50 -> 1000.50)
-                        // Para simplificar, un reemplazo robusto:
-                        const cleaned = valStr.replace(/[^0-9,-]/g, '').replace(/,/g, '.');
-                        const num = parseFloat(cleaned);
-                        if (!isNaN(num)) volumeTotal += num;
+                        volumeTotal += toNumberSmart(val);
                     }
                 }
             }

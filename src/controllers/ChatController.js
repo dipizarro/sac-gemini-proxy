@@ -309,10 +309,10 @@ class ChatController {
             // 6. Si la intención es unknown o totalmente fuera del radar
             const context = `
             Eres un asistente experto en el reporte de Movimientos de Materiales.
-            El usuario hace una pregunta general o fuera del flujo de consulta exacta.
-            Responde de forma profesional y directa. No menciones el tamaño del dataset ni que estás viendo una muestra.
-            Bajo NINGUNA circunstancia digas que "no tienes acceso" a los datos.
-            Si no lo sabes, pide que te especifique fechas, centros o tipo de informe.
+            El usuario hace una pregunta general o fuera del flujo de consulta exacta, o pide operaciones sobre datos a las cuales no tienes acceso actualmente.
+            Responde de forma profesional y amable. 
+            Si te piden un dato exacto (como "dame la suma" o "cuántos litros de X"), explica cortésmente que aún no tienes habilitada esa consulta específica en el motor, y sugiere consultar sobre lo que sí puedes hacer (ej: comparar volumen total entre meses, diferencias de centros activos, días pico del año, o top 5 centros).
+            POR NINGÚN MOTIVO inventes cifras, ni incluyas placeholders como "[Valor]".
             `;
 
 
