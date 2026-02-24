@@ -40,7 +40,8 @@ INTENCIONES:
 11. "distinct_centers_by_group_between_months": El usuario pregunta por centros únicos o movimientos para un grupo de artículo o categoría específica entre dos meses de un año dado (ej: "¿Cuántos centros tuvieron movimientos para el grupo de artículo ‘GASOLINA’ entre enero y febrero?").
 12. "materials_without_movements_feb_vs_jan": El usuario pregunta qué artículos o materiales tuvieron movimiento o salidas en un mes pero NO en otro (ej: "¿qué materiales se operaron en Enero y dejaron de tener salida en Febrero?").
 13. "compare_total_volume_between_months": El usuario quiere comparar dinámicamente el volumen total derivado entre dos meses, usando heurística para detectar la métrica a sumarizar, o indicando de forma opcional qué métrica usar explícitamente (ej: "¿Qué mes tuvo más volumen total entre enero y febrero?", "comparar volumen de CANTIDAD entre marzo y abril").
-14. "unknown": Cualquier otra pregunta o saludo.
+14. "sum_suma_neta_by_group_and_date": El usuario pide explícitamente sumar la suma neta o volumen total de un grupo de artículo específico para un día específico (ej: "Dame la SUMA_NETA de todos los centros que tenga el grupo de artículo KEROSENE para la fecha 1 de enero del 2024").
+15. "unknown": Cualquier otra pregunta o saludo.
 
 REGLAS:
 - Idioma: Español.
@@ -55,8 +56,9 @@ REGLAS:
 - Para max active day (\`max_active_centers_day\`) y priorización (\`prioritize_centers_over_period\`), intenta extraer \`year\` (ej: 2024). Para priorización extrae \`metric\` = "movements".
 - Si el usuario pregunta de fecha única (intents 1, 2 o 3) pero NO provee la fecha, establece \`needs_clarification=true\` y \`clarification_question="¿Para qué fecha deseas consultar?"\`.
 - Si es rango (4) sin indicar \`from\`/\`to\`, pide "¿Cuál es el rango de fechas (desde/hasta)?".
-- Si es comparaciones, diferencia o trimestre (5, 6, 9, 10, 11, 12, 13) pero no define meses/trimestre explícitamente, pide aclarar. Para filtro por grupo (11), si omite el grupo, lanza aclarar con "¿Para qué grupo de artículo exacto deseas consultar?". Para materiales inactivos (12), asegúrate obligatoriamente de tener los 2 meses a cruzar.
-- Si no hay año para 7, 8, 9, 10, 11, 12 y 13 usa 2024 como fallback temporal si es obvio, o pide "¿Dé qué año deseas consultar?" si es \`needs_clarification=true\`.
+- Si es comparaciones, diferencia o trimestre (5, 6, 9, 10, 11, 12, 13) pero no define meses/trimestre explícitamente, pide aclarar. Para filtro por grupo (11) o sumar por grupo (14), si omite el grupo, lanza aclarar con "¿Para qué grupo de artículo exacto deseas consultar?". Para materiales inactivos (12), asegúrate obligatoriamente de tener los 2 meses a cruzar.
+- Si no hay año para 7, 8, 9, 10, 11, 12, 13 y 14 usa 2024 como fallback temporal si es obvio, o pide "¿Dé qué año deseas consultar?" si es \`needs_clarification=true\`.
+- Si pide algo para \`sum_suma_neta_by_group_and_date\` sin especificar una fecha concreta estricta, lanza aclarar con "¿Para qué fecha exacta deseas consultar esto?".
 - Si no hay fechas explícitas, no las inventes.
 - Retorna SOLO el JSON, sin texto adicional.
 
@@ -64,8 +66,8 @@ NOTA TÉCNICA: El sistema ya detectó ${hasRange ? 'UN RANGO VÁLIDO' : 'que NO 
 
 JSON SCHEMA:
 {
-  "intent": "count_distinct_centers_by_date" | "count_movements_by_date" | "top_centers_by_movements_on_date" | "count_distinct_centers_by_date_range" | "compare_activity_by_months" | "patterns_in_quarter" | "max_active_centers_day" | "prioritize_centers_over_period" | "diff_distinct_centers_between_months" | "compare_suma_neta_between_months" | "distinct_centers_by_group_between_months" | "materials_without_movements_feb_vs_jan" | "compare_total_volume_between_months" | "unknown",
-  "slots": { "date": "YYYY-MM-DD", "topN": 5, "from": "YYYY-MM-DD", "to": "YYYY-MM-DD", "year": 2024, "months": [1, 2], "quarter": 1, "metric": "movements", "group": "GASOLINA", "volumeMetric": "string" },
+  "intent": "count_distinct_centers_by_date" | "count_movements_by_date" | "top_centers_by_movements_on_date" | "count_distinct_centers_by_date_range" | "compare_activity_by_months" | "patterns_in_quarter" | "max_active_centers_day" | "prioritize_centers_over_period" | "diff_distinct_centers_between_months" | "compare_suma_neta_between_months" | "distinct_centers_by_group_between_months" | "materials_without_movements_feb_vs_jan" | "compare_total_volume_between_months" | "sum_suma_neta_by_group_and_date" | "unknown",
+  "slots": { "date": "YYYY-MM-DD", "topN": 5, "from": "YYYY-MM-DD", "to": "YYYY-MM-DD", "year": 2024, "months": [1, 2], "quarter": 1, "metric": "movements", "group": "GASOLINA", "volumeMetric": "string", "breakdownByCenter": true },
   "confidence": 0.0-1.0,
   "needs_clarification": boolean,
   "clarification_question": "string"
@@ -151,16 +153,31 @@ MENSAJE DEL USUARIO: "${message}"
                 // Siempre se satisface por los defaults o el rango global
                 parsed.needs_clarification = false;
                 delete parsed.clarification_question;
-            } else {
-                const needsDateIntents = [
-                    "count_distinct_centers_by_date",
-                    "count_movements_by_date",
-                    "top_centers_by_movements_on_date"
-                ];
-                if (needsDateIntents.includes(parsed.intent) && !parsed.slots?.date && !parsed.needs_clarification) {
+            } else if (parsed.intent === "sum_suma_neta_by_group_and_date") {
+                if (!parsed.slots?.date) {
                     parsed.needs_clarification = true;
-                    parsed.clarification_question = "¿Para qué fecha deseas consultar?";
+                    parsed.clarification_question = "¿Para qué fecha exacta deseas la suma neta?";
+                } else if (!parsed.slots?.group) {
+                    parsed.needs_clarification = true;
+                    parsed.clarification_question = "¿Para qué grupo de artículo exacto deseas consultar la suma neta?";
+                } else {
+                    parsed.needs_clarification = false;
+                    delete parsed.clarification_question;
+                    if (parsed.slots.breakdownByCenter === undefined) {
+                        parsed.slots.breakdownByCenter = true;
+                    }
                 }
+            }
+
+            // Fallback default date si falta para count singles
+            const needsDateIntents = [
+                "count_distinct_centers_by_date",
+                "count_movements_by_date",
+                "top_centers_by_movements_on_date"
+            ];
+            if (needsDateIntents.includes(parsed.intent) && !parsed.slots?.date && !parsed.needs_clarification) {
+                parsed.needs_clarification = true;
+                parsed.clarification_question = "¿Para qué fecha deseas consultar?";
             }
 
             parsed.assumptions = assumptions;

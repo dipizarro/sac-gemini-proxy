@@ -1,4 +1,5 @@
 const IndexService = require("./IndexService");
+const { toNumberSmart } = require("../utils/helpers");
 
 class QueryEngineService {
     /**
@@ -31,6 +32,95 @@ class QueryEngineService {
             date: dateKey,
             distinctCenters,
             sampleCenters
+        };
+    }
+
+    /**
+     * Devuelve la suma exacta de SUMA_NETA, cantidad de centros distintos, y top N centros
+     * filtrado exclusivamente por FECHA y GRUPO_ARTICULOS.
+     */
+    sumSumaNetaByGroupAndDate(rows, dateKey, group, opts = {}) {
+        const breakdownByCenter = opts.breakdownByCenter !== false; // Default true
+        const topN = opts.top || 10;
+
+        let totalSumaNeta = 0;
+        const centersSet = new Set();
+        const centerSumaCounts = new Map();
+        let rowsMatched = 0;
+
+        if (!rows || rows.length === 0 || !dateKey || !group) {
+            return {
+                date: dateKey,
+                group,
+                totalSumaNeta: 0,
+                distinctCenters: 0,
+                topCenters: [],
+                totals: { rowsMatched: 0 }
+            };
+        }
+
+        const cols = Object.keys(rows[0]);
+        const dateCol = cols.find(c => c === "FECHA" || c === "FE_REGISTRO") || cols[0];
+        const centerCol = cols.find(c => c === "CENTRO" || c === "ID_CENTRO") || cols[1];
+        const groupCol = cols.find(c => c.includes("GRUPO_ARTICULO"));
+        const metricKey = cols.find(c => c === "SUMA_NETA") || cols.find(c => c.includes("NETA") || c.includes("SUMA"));
+
+        if (!groupCol || !metricKey) {
+            return {
+                error: "Faltan columnas core (Grupo Artículo o Suma Neta)",
+                date: dateKey,
+                group,
+                totalSumaNeta: 0,
+                distinctCenters: 0,
+                topCenters: [],
+                totals: { rowsMatched: 0 }
+            };
+        }
+
+        const targetGroup = group.trim().toUpperCase();
+
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            const rawDate = row[dateCol];
+            const normDate = IndexService.normalizeDate(rawDate);
+
+            if (normDate === dateKey) {
+                const rowGroup = (row[groupCol] || "").trim().toUpperCase();
+                // Match fuzzy/exact del grupo
+                if (rowGroup.includes(targetGroup) || targetGroup.includes(rowGroup)) {
+                    rowsMatched++;
+
+                    const center = row[centerCol];
+                    const val = toNumberSmart(row[metricKey]);
+
+                    totalSumaNeta += val;
+
+                    if (center) {
+                        centersSet.add(center);
+                        if (breakdownByCenter) {
+                            centerSumaCounts.set(center, (centerSumaCounts.get(center) || 0) + val);
+                        }
+                    }
+                }
+            }
+        }
+
+        let topCenters = [];
+        if (breakdownByCenter) {
+            // Sort map by numeric descending value
+            topCenters = Array.from(centerSumaCounts.entries())
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, topN)
+                .map(([center, sumaNeta]) => ({ center, sumaNeta }));
+        }
+
+        return {
+            date: dateKey,
+            group: targetGroup,
+            totalSumaNeta,
+            distinctCenters: centersSet.size,
+            topCenters,
+            totals: { rowsMatched }
         };
     }
     countMovementsByDate(rows, dateKey) {

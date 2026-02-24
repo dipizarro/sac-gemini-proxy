@@ -107,6 +107,36 @@ class ChatController {
                 });
             }
 
+            if (route.intent === "sum_suma_neta_by_group_and_date") {
+                const { date, group, breakdownByCenter } = route.slots;
+                const result = QueryEngineService.sumSumaNetaByGroupAndDate(rows, date, group, { breakdownByCenter });
+
+                if (result.error) {
+                    return res.json({
+                        reply: `Lo siento, no pude calcular esto: ${result.error}.`,
+                        meta: { engine: "error", error: result.error }
+                    });
+                }
+
+                const formatNum = (num) => new Intl.NumberFormat('es-CL').format(num);
+
+                return res.json({
+                    reply: `El ${result.date}, el grupo "${result.group}" sumó **${formatNum(result.totalSumaNeta)}** en volumen (centros operando: ${result.distinctCenters}).`,
+                    meta: {
+                        engine: "query",
+                        exact: true,
+                        intent: route.intent,
+                        date: result.date,
+                        group: result.group
+                    },
+                    data: {
+                        totalSumaNeta: result.totalSumaNeta,
+                        distinctCenters: result.distinctCenters,
+                        topCenters: result.topCenters
+                    }
+                });
+            }
+
             // 5. Soporte para AI Analysis con Insights (Sin alucinaciones)
             const insightIntents = [
                 "compare_activity_by_months",
@@ -374,11 +404,41 @@ class ChatController {
             return res.json({
                 ok: true,
                 date: result.date,
-                results: result.results,
-                totals: result.totals
+                topCenters: result.results,
+                distinctCentersTotal: result.totals.distinctCenters
             });
         } catch (err) {
             console.error("getCsvTopCentersByMovements Error:", err);
+            return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });
+        }
+    }
+
+    async getCsvSumaNetaByGroupAndDate(req, res) {
+        try {
+            const { date, group, top } = req.query;
+            if (!date || !group) {
+                return res.status(400).json({ ok: false, error: "Missing 'date' (YYYY-MM-DD) or 'group' query parameters" });
+            }
+
+            const topN = top ? parseInt(top, 10) : 10;
+            const QueryEngineService = require("../services/QueryEngineService");
+            const rows = await DataService.getRowsCached();
+            const result = QueryEngineService.sumSumaNetaByGroupAndDate(rows, date, group, { top: topN });
+
+            if (result.error) {
+                return res.status(400).json({ ok: false, error: result.error });
+            }
+
+            return res.json({
+                ok: true,
+                date: result.date,
+                group: result.group,
+                totalSumaNeta: result.totalSumaNeta,
+                distinctCenters: result.distinctCenters,
+                topCenters: result.topCenters
+            });
+        } catch (err) {
+            console.error("getCsvSumaNetaByGroupAndDate Error:", err);
             return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });
         }
     }

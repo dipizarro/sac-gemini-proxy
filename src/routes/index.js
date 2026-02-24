@@ -28,6 +28,7 @@ router.get("/csv/query/distinct-centers", (req, res) => CsvController.getDistinc
 router.get("/csv/query/movements", (req, res) => ChatController.getCsvMovementsByDate(req, res));
 router.get("/csv/query/top-centers", (req, res) => ChatController.getCsvTopCentersByMovements(req, res));
 router.get("/csv/query/distinct-centers-range", (req, res) => ChatController.getCsvDistinctCentersRange(req, res));
+router.get("/csv/query/suma-neta", (req, res) => ChatController.getCsvSumaNetaByGroupAndDate(req, res));
 
 // Insight Engine Endpoints
 router.get("/csv/insights/compare-months", (req, res) => ChatController.getCsvInsightCompareMonths(req, res));
