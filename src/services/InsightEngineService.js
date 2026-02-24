@@ -243,6 +243,60 @@ class InsightEngineService {
         };
     }
 
+    /**
+     * Calcula la diferencia exacta de centros activos entre dos meses de un año
+     */
+    diffDistinctCentersMonths(rows, year, monthA, monthB) {
+        if (!rows || rows.length === 0) return { error: "No data" };
+        const { dateCol, centerCol } = this._detectCols(rows);
+
+        const yearStr = year.toString();
+        const centersA = new Set();
+        const centersB = new Set();
+
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            const rawDate = row[dateCol];
+            const dateKey = IndexService.normalizeDate(rawDate);
+
+            if (dateKey.startsWith(yearStr)) {
+                const month = parseInt(dateKey.substring(5, 7), 10);
+                const center = row[centerCol];
+
+                if (center) {
+                    if (month === monthA) {
+                        centersA.add(center);
+                    } else if (month === monthB) {
+                        centersB.add(center);
+                    }
+                }
+            }
+        }
+
+        let onlyMonthA = 0;
+        let onlyMonthB = 0;
+
+        // Conteo Bonus Relativo
+        centersA.forEach(c => {
+            if (!centersB.has(c)) onlyMonthA++;
+        });
+
+        centersB.forEach(c => {
+            if (!centersA.has(c)) onlyMonthB++;
+        });
+
+        return {
+            year,
+            monthA,
+            monthB,
+            distinctCentersA: centersA.size,
+            distinctCentersB: centersB.size,
+            diff: centersB.size - centersA.size,
+            onlyMonthA,
+            onlyMonthB
+        };
+    }
+
     // --- Helpers Privados ---
 
     _detectCols(rows) {

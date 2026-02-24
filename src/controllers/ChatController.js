@@ -112,12 +112,14 @@ class ChatController {
                 "compare_activity_by_months",
                 "patterns_in_quarter",
                 "max_active_centers_day",
-                "prioritize_centers_over_period"
+                "prioritize_centers_over_period",
+                "diff_distinct_centers_between_months"
             ];
 
             if (insightIntents.includes(route.intent)) {
                 const InsightEngineService = require("../services/InsightEngineService");
                 let insights = null;
+                let textReply = "";
 
                 if (route.intent === "compare_activity_by_months") {
                     insights = InsightEngineService.compareMonths(rows, route.slots.year, route.slots.months[0], route.slots.months[1], route.slots.metric);
@@ -127,11 +129,35 @@ class ChatController {
                     insights = InsightEngineService.maxActiveCentersDay(rows, route.slots.year);
                 } else if (route.intent === "prioritize_centers_over_period") {
                     insights = InsightEngineService.prioritizeCenters(rows, { year: route.slots.year });
+                } else if (route.intent === "diff_distinct_centers_between_months") {
+                    insights = InsightEngineService.diffDistinctCentersMonths(rows, route.slots.year, route.slots.months[0], route.slots.months[1]);
+
+                    const monthNames = ["", "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+                    const nameA = monthNames[insights.monthA] || `Mes ${insights.monthA}`;
+                    const nameB = monthNames[insights.monthB] || `Mes ${insights.monthB}`;
+
+                    // Template hardcodeado en vez de llamar a LLM
+                    textReply = `En ${insights.year}, ${nameB} tuvo ${insights.distinctCentersB} centros con movimiento vs ${nameA} que tuvo ${insights.distinctCentersA} (diferencia: ${Math.abs(insights.diff)}).`;
+
+                    // Añadir detalle extra por bonus
+                    if (insights.onlyMonthA > 0 || insights.onlyMonthB > 0) {
+                        textReply += `\n- Centros que operaron solo en ${nameB}: ${insights.onlyMonthB}\n- Centros que operaron solo en ${nameA}: ${insights.onlyMonthA}`;
+                    }
+
+                    if (route.assumptions && route.assumptions.length > 0) {
+                        textReply += "\n\n*(Nota: " + route.assumptions.join(", ") + ")*";
+                    }
+
+                    return res.json({
+                        reply: textReply,
+                        meta: { engine: "insight", intent: route.intent, metric: "distinctCenters", assumptions: route.assumptions },
+                        data: insights
+                    });
                 }
 
                 // Prompt estricto instruyendo a Gemini a solo redactar sobre estos insights
                 const strictPrompt = `
-                Responde SOLO usando los INSIGHTS entregados a continuación en formato JSON. 
+                Responde SOLO usando los INSIGHTS entregados a continuación en formato JSON.
                 No digas 'no tengo acceso'. No pidas consultar reportes. Si notas que falta algo grave en el JSON, haz UNA pregunta de aclaración.
                 Redacta un texto claro y directo, usando 2-4 bullets con cifras.
                 Si estás comparando meses, incluye el ganador.
@@ -141,7 +167,7 @@ class ChatController {
                 `;
 
                 const aiResponse = await GeminiService.generateResponse(message, history, strictPrompt);
-                let textReply = aiResponse.reply;
+                textReply = aiResponse.reply;
 
                 // UX: Fallback de seguridad por si Gemini se disculpa
                 const excusas = ["no tengo acceso", "necesitaría consultar", "por favor proporcione", "no puedo determinar"];
@@ -307,6 +333,19 @@ class ChatController {
             const InsightEngineService = require("../services/InsightEngineService");
             const rows = await DataService.getRowsCached();
             const result = InsightEngineService.prioritizeCenters(rows, { year: year ? parseInt(year) : null });
+            return res.json({ ok: true, ...result });
+        } catch (err) {
+            return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });
+        }
+    }
+
+    async getCsvInsightDiffCenters(req, res) {
+        try {
+            const { year, a, b } = req.query;
+            if (!year || !a || !b) return res.status(400).json({ ok: false, error: "Missing year, a, or b" });
+            const InsightEngineService = require("../services/InsightEngineService");
+            const rows = await DataService.getRowsCached();
+            const result = InsightEngineService.diffDistinctCentersMonths(rows, parseInt(year), parseInt(a), parseInt(b));
             return res.json({ ok: true, ...result });
         } catch (err) {
             return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });

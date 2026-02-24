@@ -35,20 +35,21 @@ INTENCIONES:
 6. "patterns_in_quarter": El usuario busca patrones o tendencias en un trimestre dado (ej: Q1).
 7. "max_active_centers_day": El usuario pregunta qué día en específico tuvo mayor cantidad de centros activos (ej: ¿qué día de 2024 hubo más operación?).
 8. "prioritize_centers_over_period": El usuario pide priorizar, ranquear o listar los centros con mayor movimiento en un período o año completo en base a su nivel de actividad (ej: "priorizar centros con más movs").
-9. "unknown": Cualquier otra pregunta o saludo.
+9. "diff_distinct_centers_between_months": El usuario quiere saber la diferencia o comparativa matemática exacta de centros (con movimiento) entre dos meses (ej: "Diferencia de centros entre enero y febrero").
+10. "unknown": Cualquier otra pregunta o saludo.
 
 REGLAS:
 - Idioma: Español.
 - Normalizar fechas a YYYY-MM-DD.
 - Si el usuario pregunta por un top o centros con más movimientos (\`top_centers\`), extrae "topN" si especifica cantidad (ej: "top 10" -> 10). Por defecto usa 5.
 - Si el usuario pregunta por un rango ("entre el 1 y 7", "del 1 al 7"), debes clasificar como "count_distinct_centers_by_date_range". Extrae "from" y "to" (YYYY-MM-DD).
-- Para comparar meses (\`compare_activity_by_months\`), extrae el \`year\` (ej: 2024), un arreglo \`months\` con los números de los meses (ej: [1, 2]), y la \`metric\` de comparación ("movements" o "distinct_centers", usa "movements" por defecto).
+- Para comparar meses (\`compare_activity_by_months\`) o pedir la diferencia de centros entre meses (\`diff_distinct_centers_between_months\`), extrae el \`year\` (ej: 2024), un arreglo \`months\` ordenado cronológicamente con los números de los meses (ej: [1, 2]), y si es comparación, la \`metric\` ("movements" o "distinct_centers", usa "movements" por defecto).
 - Para patrones trimestrales (\`patterns_in_quarter\`), extrae \`year\` y \`quarter\` (1-4).
 - Para max active day (\`max_active_centers_day\`) y priorización (\`prioritize_centers_over_period\`), intenta extraer \`year\` (ej: 2024). Para priorización extrae \`metric\` = "movements".
 - Si el usuario pregunta de fecha única (intents 1, 2 o 3) pero NO provee la fecha, establece \`needs_clarification=true\` y \`clarification_question="¿Para qué fecha deseas consultar?"\`.
 - Si es rango (4) sin indicar \`from\`/\`to\`, pide "¿Cuál es el rango de fechas (desde/hasta)?".
-- Si es comparación o trimestre (5, 6) pero no define meses/trimestre explícitamente, pide aclarar.
-- Si no hay año para 7 y 8, usa 2024 como fallback temporal si es obvio, o pide "¿Dé qué año deseas consultar?" si es \`needs_clarification=true\`.
+- Si es comparación, diferencia o trimestre (5, 6, 9) pero no define meses/trimestre explícitamente, pide aclarar.
+- Si no hay año para 7, 8 y 9, usa 2024 como fallback temporal si es obvio, o pide "¿Dé qué año deseas consultar?" si es \`needs_clarification=true\`.
 - Si no hay fechas explícitas, no las inventes.
 - Retorna SOLO el JSON, sin texto adicional.
 
@@ -56,7 +57,7 @@ NOTA TÉCNICA: El sistema ya detectó ${hasRange ? 'UN RANGO VÁLIDO' : 'que NO 
 
 JSON SCHEMA:
 {
-  "intent": "count_distinct_centers_by_date" | "count_movements_by_date" | "top_centers_by_movements_on_date" | "count_distinct_centers_by_date_range" | "compare_activity_by_months" | "patterns_in_quarter" | "max_active_centers_day" | "prioritize_centers_over_period" | "unknown",
+  "intent": "count_distinct_centers_by_date" | "count_movements_by_date" | "top_centers_by_movements_on_date" | "count_distinct_centers_by_date_range" | "compare_activity_by_months" | "patterns_in_quarter" | "max_active_centers_day" | "prioritize_centers_over_period" | "diff_distinct_centers_between_months" | "unknown",
   "slots": { "date": "YYYY-MM-DD", "topN": 5, "from": "YYYY-MM-DD", "to": "YYYY-MM-DD", "year": 2024, "months": [1, 2], "quarter": 1, "metric": "movements" },
   "confidence": 0.0-1.0,
   "needs_clarification": boolean,
@@ -82,14 +83,14 @@ MENSAJE DEL USUARIO: "${message}"
                     parsed.needs_clarification = true;
                     parsed.clarification_question = "¿Cuál es el rango de fechas (desde/hasta)?";
                 }
-            } else if (parsed.intent === "compare_activity_by_months") {
+            } else if (["compare_activity_by_months", "diff_distinct_centers_between_months"].includes(parsed.intent)) {
                 if (!parsed.slots?.year) {
                     parsed.slots.year = profile.defaultYear;
-                    assumptions.push(`Asumiendo año ${profile.defaultYear} para la comparación`);
+                    assumptions.push(`Asumiendo año ${profile.defaultYear} para la comparación/diferencia`);
                 }
                 if (!parsed.slots?.months || parsed.slots.months.length < 2) {
                     parsed.needs_clarification = true;
-                    parsed.clarification_question = "¿Qué meses y de qué año deseas comparar?";
+                    parsed.clarification_question = "¿Qué meses y de qué año deseas procesar?";
                 } else if (parsed.slots?.year) {
                     parsed.needs_clarification = false;
                     delete parsed.clarification_question;
