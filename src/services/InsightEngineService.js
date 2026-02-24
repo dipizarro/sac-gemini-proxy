@@ -467,6 +467,99 @@ class InsightEngineService {
         };
     }
 
+    /**
+     * Resuelve heurísticamente qué columna de volumen utilizar.
+     */
+    resolveVolumeMetric(cols, overrideMetric) {
+        if (overrideMetric) {
+            const upperOverride = overrideMetric.trim().toUpperCase();
+            const found = cols.find(c => c.toUpperCase().includes(upperOverride));
+            if (found) return found;
+        }
+
+        const candidates = ["SUMA_NETA", "CANTIDAD", "VOLUMEN", "IMPORTE", "MONTO", "VALOR"];
+        for (const candidate of candidates) {
+            const match = cols.find(c => c.toUpperCase() === candidate || c.toUpperCase().includes(candidate));
+            if (match) return match;
+        }
+
+        return null; // Fallback
+    }
+
+    /**
+     * Calcula dinámicamente el volumen total por mes procesando floats de forma segura.
+     */
+    totalVolumeByMonth(rows, year, month, metricKey) {
+        if (!rows || rows.length === 0) return { month, volumeTotal: 0 };
+        const { dateCol } = this._detectCols(rows);
+
+        let volumeTotal = 0;
+        const yearStr = year.toString();
+
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            const rawDate = row[dateCol];
+            const dateKey = IndexService.normalizeDate(rawDate);
+
+            if (dateKey.startsWith(yearStr)) {
+                const rowMonth = parseInt(dateKey.substring(5, 7), 10);
+                if (rowMonth === month) {
+                    let val = row[metricKey];
+                    if (val !== undefined && val !== null && val !== "") {
+                        // Soportar `,` como separador decimal
+                        const valStr = val.toString().trim();
+                        // Remover caracteres de puntuacion ajenos a menos que sea un float (ej $1.000,50 -> 1000.50)
+                        // Para simplificar, un reemplazo robusto:
+                        const cleaned = valStr.replace(/[^0-9,-]/g, '').replace(/,/g, '.');
+                        const num = parseFloat(cleaned);
+                        if (!isNaN(num)) volumeTotal += num;
+                    }
+                }
+            }
+        }
+
+        return { month, volumeTotal };
+    }
+
+    /**
+     * Compara el volumen acumulado de la métrica resuelta entre dos meses.
+     */
+    compareTotalVolumeBetweenMonths(rows, year, monthA, monthB, metricKeyOverride) {
+        if (!rows || rows.length === 0) return { error: "No data" };
+        const cols = Object.keys(rows[0]);
+
+        const metricKey = this.resolveVolumeMetric(cols, metricKeyOverride);
+        if (!metricKey) {
+            return { error: "MISSING_VOLUME_METRIC" };
+        }
+
+        const resA = this.totalVolumeByMonth(rows, year, monthA, metricKey);
+        const resB = this.totalVolumeByMonth(rows, year, monthB, metricKey);
+
+        const sumA = resA.volumeTotal;
+        const sumB = resB.volumeTotal;
+
+        const diffAbs = Math.abs(sumA - sumB);
+        let diffPct = 0;
+        if (sumA !== 0) {
+            diffPct = (diffAbs / sumA) * 100;
+        }
+
+        let winnerMonth = "Ambos (Empate)";
+        if (sumA > sumB) winnerMonth = "Mes A";
+        else if (sumB > sumA) winnerMonth = "Mes B";
+
+        return {
+            year,
+            metricKey,
+            a: resA,
+            b: resB,
+            winnerMonth,
+            diffAbs,
+            diffPct
+        };
+    }
+
     // --- Helpers Privados ---
 
     _detectCols(rows) {

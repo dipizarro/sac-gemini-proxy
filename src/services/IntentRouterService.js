@@ -39,22 +39,24 @@ INTENCIONES:
 10. "compare_suma_neta_between_months": El usuario quiere comparar el volumen total, monto, valores o suma neta (SUMA_NETA) entre dos meses específicos (ej: "¿Hubo más volumen en enero o febrero?", "comparar suma neta entre enero y febrero").
 11. "distinct_centers_by_group_between_months": El usuario pregunta por centros únicos o movimientos para un grupo de artículo o categoría específica entre dos meses de un año dado (ej: "¿Cuántos centros tuvieron movimientos para el grupo de artículo ‘GASOLINA’ entre enero y febrero?").
 12. "materials_without_movements_feb_vs_jan": El usuario pregunta qué artículos o materiales tuvieron movimiento o salidas en un mes pero NO en otro (ej: "¿qué materiales se operaron en Enero y dejaron de tener salida en Febrero?").
-13. "unknown": Cualquier otra pregunta o saludo.
+13. "compare_total_volume_between_months": El usuario quiere comparar dinámicamente el volumen total derivado entre dos meses, usando heurística para detectar la métrica a sumarizar, o indicando de forma opcional qué métrica usar explícitamente (ej: "¿Qué mes tuvo más volumen total entre enero y febrero?", "comparar volumen de CANTIDAD entre marzo y abril").
+14. "unknown": Cualquier otra pregunta o saludo.
 
 REGLAS:
 - Idioma: Español.
 - Normalizar fechas a YYYY-MM-DD.
 - Si el usuario pregunta por un top o centros con más movimientos (\`top_centers\`), extrae "topN" si especifica cantidad (ej: "top 10" -> 10). Por defecto usa 5.
 - Si el usuario pregunta por un rango ("entre el 1 y 7", "del 1 al 7"), debes clasificar como "count_distinct_centers_by_date_range". Extrae "from" y "to" (YYYY-MM-DD).
-- Para comparar meses (\`compare_activity_by_months\`), pedir la diferencia (\`diff_distinct_centers_between_months\`), comparar suma neta (\`compare_suma_neta_between_months\`), filtrar por grupo entre meses (\`distinct_centers_by_group_between_months\`), o pedir materiales inactivos un mes respecto al otro (\`materials_without_movements_feb_vs_jan\`), extrae el \`year\` (ej: 2024), un arreglo \`months\` ordenado cronológicamente con los números de los meses (ej: [1, 2]). 
+- Para comparar meses (\`compare_activity_by_months\`), pedir la diferencia (\`diff_distinct_centers_between_months\`), comparar suma neta (\`compare_suma_neta_between_months\`), filtrar por grupo entre meses (\`distinct_centers_by_group_between_months\`), pedir materiales inactivos un mes respecto al otro (\`materials_without_movements_feb_vs_jan\`), o comparar volumen total (\`compare_total_volume_between_months\`), extrae el \`year\` (ej: 2024), un arreglo \`months\` ordenado cronológicamente con los números de los meses (ej: [1, 2]). 
 - Para \`compare_activity_by_months\` extrae además la \`metric\` ("movements" o "distinct_centers", usa "movements" por defecto).
+- Para \`compare_total_volume_between_months\` extrae además opcionalmente el slot \`volumeMetric\` (ej: "CANTIDAD", "IMPORTE") SI el mensaje cita explícitamente el nombre de la columna o métrica a usar.
 - Crucial: Para \`distinct_centers_by_group_between_months\` extrae además el nombre exacto del grupo que pide el usuario en el slot \`group\` (ej: "GASOLINA").
 - Para patrones trimestrales (\`patterns_in_quarter\`), extrae \`year\` y \`quarter\` (1-4).
 - Para max active day (\`max_active_centers_day\`) y priorización (\`prioritize_centers_over_period\`), intenta extraer \`year\` (ej: 2024). Para priorización extrae \`metric\` = "movements".
 - Si el usuario pregunta de fecha única (intents 1, 2 o 3) pero NO provee la fecha, establece \`needs_clarification=true\` y \`clarification_question="¿Para qué fecha deseas consultar?"\`.
 - Si es rango (4) sin indicar \`from\`/\`to\`, pide "¿Cuál es el rango de fechas (desde/hasta)?".
-- Si es comparaciones, diferencia o trimestre (5, 6, 9, 10, 11, 12) pero no define meses/trimestre explícitamente, pide aclarar. Para filtro por grupo (11), si omite el grupo, lanza aclarar con "¿Para qué grupo de artículo exacto deseas consultar?". Para materiales inactivos (12), asegúrate obligatoriamente de tener los 2 meses a cruzar.
-- Si no hay año para 7, 8, 9, 10, 11 y 12 usa 2024 como fallback temporal si es obvio, o pide "¿Dé qué año deseas consultar?" si es \`needs_clarification=true\`.
+- Si es comparaciones, diferencia o trimestre (5, 6, 9, 10, 11, 12, 13) pero no define meses/trimestre explícitamente, pide aclarar. Para filtro por grupo (11), si omite el grupo, lanza aclarar con "¿Para qué grupo de artículo exacto deseas consultar?". Para materiales inactivos (12), asegúrate obligatoriamente de tener los 2 meses a cruzar.
+- Si no hay año para 7, 8, 9, 10, 11, 12 y 13 usa 2024 como fallback temporal si es obvio, o pide "¿Dé qué año deseas consultar?" si es \`needs_clarification=true\`.
 - Si no hay fechas explícitas, no las inventes.
 - Retorna SOLO el JSON, sin texto adicional.
 
@@ -62,8 +64,8 @@ NOTA TÉCNICA: El sistema ya detectó ${hasRange ? 'UN RANGO VÁLIDO' : 'que NO 
 
 JSON SCHEMA:
 {
-  "intent": "count_distinct_centers_by_date" | "count_movements_by_date" | "top_centers_by_movements_on_date" | "count_distinct_centers_by_date_range" | "compare_activity_by_months" | "patterns_in_quarter" | "max_active_centers_day" | "prioritize_centers_over_period" | "diff_distinct_centers_between_months" | "compare_suma_neta_between_months" | "distinct_centers_by_group_between_months" | "materials_without_movements_feb_vs_jan" | "unknown",
-  "slots": { "date": "YYYY-MM-DD", "topN": 5, "from": "YYYY-MM-DD", "to": "YYYY-MM-DD", "year": 2024, "months": [1, 2], "quarter": 1, "metric": "movements", "group": "GASOLINA" },
+  "intent": "count_distinct_centers_by_date" | "count_movements_by_date" | "top_centers_by_movements_on_date" | "count_distinct_centers_by_date_range" | "compare_activity_by_months" | "patterns_in_quarter" | "max_active_centers_day" | "prioritize_centers_over_period" | "diff_distinct_centers_between_months" | "compare_suma_neta_between_months" | "distinct_centers_by_group_between_months" | "materials_without_movements_feb_vs_jan" | "compare_total_volume_between_months" | "unknown",
+  "slots": { "date": "YYYY-MM-DD", "topN": 5, "from": "YYYY-MM-DD", "to": "YYYY-MM-DD", "year": 2024, "months": [1, 2], "quarter": 1, "metric": "movements", "group": "GASOLINA", "volumeMetric": "string" },
   "confidence": 0.0-1.0,
   "needs_clarification": boolean,
   "clarification_question": "string"
@@ -88,7 +90,7 @@ MENSAJE DEL USUARIO: "${message}"
                     parsed.needs_clarification = true;
                     parsed.clarification_question = "¿Cuál es el rango de fechas (desde/hasta)?";
                 }
-            } else if (["compare_activity_by_months", "diff_distinct_centers_between_months", "compare_suma_neta_between_months", "distinct_centers_by_group_between_months", "materials_without_movements_feb_vs_jan"].includes(parsed.intent)) {
+            } else if (["compare_activity_by_months", "diff_distinct_centers_between_months", "compare_suma_neta_between_months", "distinct_centers_by_group_between_months", "materials_without_movements_feb_vs_jan", "compare_total_volume_between_months"].includes(parsed.intent)) {
                 if (!parsed.slots?.year) {
                     parsed.slots.year = profile.defaultYear;
                     assumptions.push(`Asumiendo año ${profile.defaultYear} para la métrica mensual`);

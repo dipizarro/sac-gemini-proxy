@@ -116,7 +116,8 @@ class ChatController {
                 "diff_distinct_centers_between_months",
                 "compare_suma_neta_between_months",
                 "distinct_centers_by_group_between_months",
-                "materials_without_movements_feb_vs_jan"
+                "materials_without_movements_feb_vs_jan",
+                "compare_total_volume_between_months"
             ];
 
             if (insightIntents.includes(route.intent)) {
@@ -244,6 +245,37 @@ class ChatController {
                     return res.json({
                         reply: textReply,
                         meta: { engine: "insight", intent: route.intent, metric: "setDifference", assumptions: route.assumptions },
+                        data: insights
+                    });
+                } else if (route.intent === "compare_total_volume_between_months") {
+                    insights = InsightEngineService.compareTotalVolumeBetweenMonths(rows, route.slots.year, route.slots.months[0], route.slots.months[1], route.slots.volumeMetric);
+
+                    if (insights.error === "MISSING_VOLUME_METRIC") {
+                        return res.json({
+                            reply: "No puedo calcular volumen total porque el CSV no trae una columna de volumen (ej: CANTIDAD/IMPORTE). ¿Qué métrica deseas usar?",
+                            meta: { engine: "insight", intent: route.intent, error: insights.error }
+                        });
+                    }
+
+                    const nameA = monthNames[insights.monthA] || `Mes ${insights.monthA}`;
+                    const nameB = monthNames[insights.monthB] || `Mes ${insights.monthB}`;
+                    const formatNum = (num) => new Intl.NumberFormat('es-CL').format(num);
+                    const winnerName = (insights.winnerMonth === "Mes A") ? nameA : (insights.winnerMonth === "Mes B") ? nameB : "Ambos (Empate)";
+
+                    textReply = `Entre ${nameA} y ${nameB} de ${insights.year}, el mayor volumen total (${insights.metricKey}) fue de **${winnerName}**.\n\n`;
+                    textReply += `| Mes | Volumen Agrupado |\n`;
+                    textReply += `|---|---|\n`;
+                    textReply += `| ${nameA.charAt(0).toUpperCase() + nameA.slice(1)} | ${formatNum(insights.a.volumeTotal)} |\n`;
+                    textReply += `| ${nameB.charAt(0).toUpperCase() + nameB.slice(1)} | ${formatNum(insights.b.volumeTotal)} |\n`;
+                    textReply += `| **Diferencia** | **${formatNum(insights.diffAbs)}** (${insights.diffPct.toFixed(1)}%) |\n`;
+
+                    if (route.assumptions && route.assumptions.length > 0) {
+                        textReply += "\n*(Nota: " + route.assumptions.join(", ") + ")*";
+                    }
+
+                    return res.json({
+                        reply: textReply,
+                        meta: { engine: "insight", intent: route.intent, metric: "totalVolume", metricKey: insights.metricKey, assumptions: route.assumptions },
                         data: insights
                     });
                 }
