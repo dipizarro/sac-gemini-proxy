@@ -143,11 +143,6 @@ class ChatController {
                     // Template hardcodeado en vez de llamar a LLM
                     textReply = `En ${insights.year}, ${nameB} tuvo ${insights.distinctCentersB} centros con movimiento vs ${nameA} que tuvo ${insights.distinctCentersA} (diferencia: ${Math.abs(insights.diff)}).`;
 
-                    // Añadir detalle extra por bonus
-                    if (insights.onlyMonthA > 0 || insights.onlyMonthB > 0) {
-                        textReply += `\n- Centros que operaron solo en ${nameB}: ${insights.onlyMonthB}\n- Centros que operaron solo en ${nameA}: ${insights.onlyMonthA}`;
-                    }
-
                     if (route.assumptions && route.assumptions.length > 0) {
                         textReply += "\n\n*(Nota: " + route.assumptions.join(", ") + ")*";
                     }
