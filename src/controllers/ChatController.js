@@ -114,7 +114,9 @@ class ChatController {
                 "max_active_centers_day",
                 "prioritize_centers_over_period",
                 "diff_distinct_centers_between_months",
-                "compare_suma_neta_between_months"
+                "compare_suma_neta_between_months",
+                "distinct_centers_by_group_between_months",
+                "materials_without_movements_feb_vs_jan"
             ];
 
             if (insightIntents.includes(route.intent)) {
@@ -184,6 +186,64 @@ class ChatController {
                     return res.json({
                         reply: textReply,
                         meta: { engine: "insight", intent: route.intent, metric: "sumaNeta", assumptions: route.assumptions },
+                        data: insights
+                    });
+                } else if (route.intent === "distinct_centers_by_group_between_months") {
+                    const monthStart = route.slots.months[0];
+                    const monthEnd = route.slots.months[route.slots.months.length - 1]; // Toma el último
+                    insights = InsightEngineService.distinctCentersByGroupMonths(rows, route.slots.year, monthStart, monthEnd, route.slots.group);
+
+                    if (insights.error === "MISSING_DIM_GROUP") {
+                        return res.json({
+                            reply: "Lo siento, en este archivo no logré detectar una columna descriptiva que contenga los Grupos de Artículos o Materiales.",
+                            meta: { engine: "insight", intent: route.intent, error: insights.error }
+                        });
+                    }
+
+                    const nameA = monthNames[insights.monthA] || `Mes ${insights.monthA}`;
+                    const nameB = monthNames[insights.monthB] || `Mes ${insights.monthB}`;
+                    const capGroup = insights.group.toUpperCase();
+
+                    textReply = `Entre ${nameA} y ${nameB} de ${insights.year}, el grupo **'${capGroup}'** tuvo movimientos en **${insights.totalDistinctCenters}** centros únicos.\n`;
+                    textReply += `- Desglose: ${nameA} (${insights.monthADistinctCenters}), ${nameB} (${insights.monthBDistinctCenters})`;
+
+                    if (route.assumptions && route.assumptions.length > 0) {
+                        textReply += "\n\n*(Nota: " + route.assumptions.join(", ") + ")*";
+                    }
+
+                    return res.json({
+                        reply: textReply,
+                        meta: { engine: "insight", intent: route.intent, metric: "distinctCenters", assumptions: route.assumptions },
+                        data: insights
+                    });
+                } else if (route.intent === "materials_without_movements_feb_vs_jan") {
+                    insights = InsightEngineService.materialsWithoutMovementsMonths(rows, route.slots.year, route.slots.months[0], route.slots.months[1]);
+
+                    if (insights.error === "MISSING_DIM_MATERIAL") {
+                        return res.json({
+                            reply: "Lo siento, este archivo no parece contener una columna descriptiva o ID de los Materiales / Artículos para cruzarlos.",
+                            meta: { engine: "insight", intent: route.intent, error: insights.error }
+                        });
+                    }
+
+                    const nameA = monthNames[insights.monthA] || `Mes ${insights.monthA}`;
+                    const nameB = monthNames[insights.monthB] || `Mes ${insights.monthB}`;
+
+                    textReply = `Entre ${nameA} y ${nameB} de ${insights.year}, hubo **${insights.countOnlyA}** artículos que operaron en ${nameA} y dejaron de tener salida en ${nameB}.\n`;
+                    if (insights.countOnlyA > 0) {
+                        textReply += `\nMuestra de materiales (${insights.sampleOnlyA.length}): ${insights.sampleOnlyA.join(", ")}.\n`;
+                    }
+
+                    textReply += `\n*(Opcional) A la inversa: ${insights.countOnlyB} artículos operaron en ${nameB} pero no en ${nameA}.*`;
+                    textReply += `\n\n💡 **Sugerencia:** ¿Quieres que lo exporte o que lo filtre por centro?`;
+
+                    if (route.assumptions && route.assumptions.length > 0) {
+                        textReply += `\n\n*(Nota: ${route.assumptions.join(", ")})*`;
+                    }
+
+                    return res.json({
+                        reply: textReply,
+                        meta: { engine: "insight", intent: route.intent, metric: "setDifference", assumptions: route.assumptions },
                         data: insights
                     });
                 }
@@ -392,6 +452,34 @@ class ChatController {
             const InsightEngineService = require("../services/InsightEngineService");
             const rows = await DataService.getRowsCached();
             const result = InsightEngineService.compareSumaNetaMonths(rows, parseInt(year), parseInt(a), parseInt(b));
+            if (result.error) return res.status(400).json({ ok: false, ...result });
+            return res.json({ ok: true, ...result });
+        } catch (err) {
+            return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });
+        }
+    }
+
+    async getCsvInsightGroupCenters(req, res) {
+        try {
+            const { year, a, b, group } = req.query;
+            if (!year || !a || !b || !group) return res.status(400).json({ ok: false, error: "Missing year, a, b, or group" });
+            const InsightEngineService = require("../services/InsightEngineService");
+            const rows = await DataService.getRowsCached();
+            const result = InsightEngineService.distinctCentersByGroupMonths(rows, parseInt(year), parseInt(a), parseInt(b), group);
+            if (result.error) return res.status(400).json({ ok: false, ...result });
+            return res.json({ ok: true, ...result });
+        } catch (err) {
+            return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });
+        }
+    }
+
+    async getCsvInsightMaterialDiff(req, res) {
+        try {
+            const { year, a, b } = req.query;
+            if (!year || !a || !b) return res.status(400).json({ ok: false, error: "Missing year, a, or b" });
+            const InsightEngineService = require("../services/InsightEngineService");
+            const rows = await DataService.getRowsCached();
+            const result = InsightEngineService.materialsWithoutMovementsMonths(rows, parseInt(year), parseInt(a), parseInt(b));
             if (result.error) return res.status(400).json({ ok: false, ...result });
             return res.json({ ok: true, ...result });
         } catch (err) {

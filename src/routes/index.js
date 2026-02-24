@@ -36,5 +36,7 @@ router.get("/csv/insights/quarter", (req, res) => ChatController.getCsvInsightQu
 router.get("/csv/insights/prioritize", (req, res) => ChatController.getCsvInsightPrioritize(req, res));
 router.get("/csv/insights/diff-centers", (req, res) => ChatController.getCsvInsightDiffCenters(req, res));
 router.get("/csv/insights/compare-sumaneta", (req, res) => ChatController.getCsvInsightCompareSumaNeta(req, res));
+router.get("/csv/insights/group-centers", (req, res) => ChatController.getCsvInsightGroupCenters(req, res));
+router.get("/csv/insights/material-diff", (req, res) => ChatController.getCsvInsightMaterialDiff(req, res));
 
 module.exports = router;

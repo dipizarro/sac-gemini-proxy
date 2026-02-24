@@ -356,6 +356,117 @@ class InsightEngineService {
         };
     }
 
+    /**
+     * Filtra los centros únicos por grupo de artículos entre dos meses dados.
+     */
+    distinctCentersByGroupMonths(rows, year, monthA, monthB, group) {
+        if (!rows || rows.length === 0) return { error: "No data" };
+        const { dateCol, centerCol, groupCol } = this._detectCols(rows);
+
+        if (!groupCol) {
+            return { error: "MISSING_DIM_GROUP" };
+        }
+
+        const yearStr = year.toString();
+        const searchGroup = group.trim().toLowerCase();
+
+        const totalCentersSet = new Set();
+        const monthACentersSet = new Set();
+        const monthBCentersSet = new Set();
+
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            const rawDate = row[dateCol];
+            const dateKey = IndexService.normalizeDate(rawDate);
+
+            if (dateKey.startsWith(yearStr)) {
+                const month = parseInt(dateKey.substring(5, 7), 10);
+
+                if (month >= monthA && month <= monthB) {
+                    const rowGroup = row[groupCol];
+                    if (rowGroup && rowGroup.toString().trim().toLowerCase() === searchGroup) {
+                        const center = row[centerCol];
+                        if (center) {
+                            totalCentersSet.add(center);
+                            if (month === monthA) monthACentersSet.add(center);
+                            if (month === monthB) monthBCentersSet.add(center);
+                        }
+                    }
+                }
+            }
+        }
+
+        return {
+            year,
+            monthA,
+            monthB,
+            group: searchGroup,
+            totalDistinctCenters: totalCentersSet.size,
+            monthADistinctCenters: monthACentersSet.size,
+            monthBDistinctCenters: monthBCentersSet.size
+        };
+    }
+
+    /**
+     * Set Difference: Obtiene los materiales que operaron en monthA y NO en monthB (y viceversa)
+     */
+    materialsWithoutMovementsMonths(rows, year, monthA, monthB) {
+        if (!rows || rows.length === 0) return { error: "No data" };
+        const { dateCol, materialCol } = this._detectCols(rows);
+
+        if (!materialCol) {
+            return { error: "MISSING_DIM_MATERIAL" };
+        }
+
+        const yearStr = year.toString();
+        const materialsA = new Set();
+        const materialsB = new Set();
+
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            const rawDate = row[dateCol];
+            const dateKey = IndexService.normalizeDate(rawDate);
+
+            if (dateKey.startsWith(yearStr)) {
+                const month = parseInt(dateKey.substring(5, 7), 10);
+                const mat = row[materialCol];
+
+                if (mat) {
+                    const matStr = mat.toString().trim();
+                    if (month === monthA) {
+                        materialsA.add(matStr);
+                    } else if (month === monthB) {
+                        materialsB.add(matStr);
+                    }
+                }
+            }
+        }
+
+        // Set Difference
+        const onlyAArr = [];
+        materialsA.forEach(m => {
+            if (!materialsB.has(m)) onlyAArr.push(m);
+        });
+
+        const onlyBArr = [];
+        materialsB.forEach(m => {
+            if (!materialsA.has(m)) onlyBArr.push(m);
+        });
+
+        onlyAArr.sort();
+        onlyBArr.sort();
+
+        return {
+            year,
+            monthA,
+            monthB,
+            countOnlyA: onlyAArr.length,
+            sampleOnlyA: onlyAArr.slice(0, 20),
+            countOnlyB: onlyBArr.length,
+            sampleOnlyB: onlyBArr.slice(0, 20)
+        };
+    }
+
     // --- Helpers Privados ---
 
     _detectCols(rows) {
@@ -365,7 +476,21 @@ class InsightEngineService {
         const centerCol = cols.find(c => c === "ID_CENTRO") || cols.find(c => c.includes("CENTRO")) || cols.find(c => c.includes("PLANT"));
         const movClassCol = cols.find(c => c === "CLASE_MOVIMIENTO") || cols.find(c => c.includes("CLASE")) || cols.find(c => c.includes("MOV_TYPE") || c.includes("BWART"));
         const sumaNetaCol = cols.find(c => c === "SUMA_NETA") || cols.find(c => c.toUpperCase().includes("SUMA_NETA"));
-        return { dateCol, centerCol, movClassCol, sumaNetaCol };
+
+        // Group column fuzzy matching
+        const groupCol = cols.find(c => c === "GRUPO_ARTICULOS") ||
+            cols.find(c => c.includes("GRUPO")) ||
+            cols.find(c => c.includes("ARTICULO") && !c.includes("GRUPO_ARTICULO")) ||
+            cols.find(c => c.includes("MATKL")) ||
+            cols.find(c => c.includes("GROUP"));
+
+        // Material column fuzzy matching
+        const materialCol = cols.find(c => c === "MATERIAL") ||
+            cols.find(c => c === "MATERIAL1") ||
+            cols.find(c => c.includes("MATNR")) ||
+            cols.find(c => c.includes("ARTICULO") && !c.includes("GRUPO_ARTICULO"));
+
+        return { dateCol, centerCol, movClassCol, sumaNetaCol, groupCol, materialCol };
     }
 
     _topFromMap(map, n) {
