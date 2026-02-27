@@ -169,7 +169,7 @@ MENSAJE DEL USUARIO: "${message}"
                 }
             }
 
-            // Fallback default date si falta para count singles
+            // Fecha por defecto de respaldo si falta para conteos únicos
             const needsDateIntents = [
                 "count_distinct_centers_by_date",
                 "count_movements_by_date",

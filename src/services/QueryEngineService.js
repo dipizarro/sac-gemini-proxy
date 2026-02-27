@@ -3,8 +3,8 @@ const { toNumberSmart } = require("../utils/helpers");
 
 class QueryEngineService {
     /**
-     * Reuses indexing logic to efficiently find distinct centers by date.
-     * @param {Array} rows - Full dataset
+     * Reutiliza la lógica de indexación para encontrar eficientemente centros distintos por fecha.
+     * @param {Array} rows - Conjunto de datos completo
      * @param {string} dateKey - YYYY-MM-DD
      */
     countDistinctCentersByDate(rows, dateKey) {
@@ -12,8 +12,8 @@ class QueryEngineService {
             return { date: dateKey, distinctCenters: 0, sampleCenters: [] };
         }
 
-        // Build a temporary index or use a direct filter
-        // Since we want to be "Engine-like" and exact:
+        // Construir un índice temporal o usar un filtro directo
+        // Dado que queremos ser exactos y como un "Motor":
         const index = IndexService.buildIndexes(rows);
         const centersSet = index.centersByDate.get(dateKey);
 
@@ -128,7 +128,7 @@ class QueryEngineService {
             return { date: dateKey, movements: 0, evidence: { sampleRows: [] } };
         }
 
-        // Auto-detect columns (re-using logic similar to IndexService)
+        // Autodetectar columnas (reutilizando lógica similar a IndexService)
         const firstRow = rows[0];
         const cols = Object.keys(firstRow);
         const dateCol = cols.find(c => c === "FECHA") || cols.find(c => c.includes("FECHA")) || cols.find(c => c.includes("DATE"));
@@ -149,7 +149,7 @@ class QueryEngineService {
         if (process.env.EVIDENCE_SAMPLE === "1") {
             evidence.sampleRows = matchingRows.slice(0, 5);
 
-            // Optionally add sampleCenters if center column is detectable
+            // Opcionalmente agregar sampleCenters si la columna de centro es detectable
             const centerCol = cols.find(c => c === "ID_CENTRO") || cols.find(c => c.includes("CENTRO")) || cols.find(c => c.includes("PLANT"));
             if (centerCol && movements > 0) {
                 const centers = new Set(matchingRows.map(r => r[centerCol]));
@@ -265,7 +265,7 @@ class QueryEngineService {
             const rawDate = row[dateCol];
             const dateKey = IndexService.normalizeDate(rawDate);
 
-            // Check if date is within range (string comparison works for YYYY-MM-DD)
+            // Validar si la fecha está dentro del rango (la comparación de strings funciona para YYYY-MM-DD)
             if (dateKey >= from && dateKey <= to) {
                 const center = row[centerCol];
                 if (center) {

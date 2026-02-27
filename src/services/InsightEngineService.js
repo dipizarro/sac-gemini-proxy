@@ -11,7 +11,7 @@ class InsightEngineService {
         const { dateCol, centerCol } = this._detectCols(rows);
         if (!dateCol || !centerCol) return { year, months: [] };
 
-        const monthStats = new Map(); // month (1-12) -> { movements, distinctCentersSet }
+        const monthStats = new Map(); // mes (1-12) -> { movements, distinctCentersSet }
 
         const yearStr = year.toString();
 
@@ -95,7 +95,7 @@ class InsightEngineService {
         let qMovements = 0;
         const qCentersSet = new Set();
         const dailyMovementCounts = new Map(); // dateKey -> count
-        const dailyCentersSet = new Map(); // dateKey -> Set of centers
+        const dailyCentersSet = new Map(); // dateKey -> Set de centros
         const centerMovementCounts = new Map(); // centerId -> count
         const movClassCounts = new Map(); // movClass -> count
 
@@ -113,18 +113,18 @@ class InsightEngineService {
                     if (center) {
                         qCentersSet.add(center);
 
-                        // Center movements
+                        // Movimientos por centro
                         centerMovementCounts.set(center, (centerMovementCounts.get(center) || 0) + 1);
 
-                        // Daily centers
+                        // Centros diarios
                         if (!dailyCentersSet.has(dateKey)) dailyCentersSet.set(dateKey, new Set());
                         dailyCentersSet.get(dateKey).add(center);
                     }
 
-                    // Daily movements
+                    // Movimientos diarios
                     dailyMovementCounts.set(dateKey, (dailyMovementCounts.get(dateKey) || 0) + 1);
 
-                    // Mov class if available
+                    // Clase de movimiento si está disponible
                     if (movClassCol) {
                         const mClass = row[movClassCol];
                         if (mClass) movClassCounts.set(mClass, (movClassCounts.get(mClass) || 0) + 1);
@@ -441,7 +441,7 @@ class InsightEngineService {
             }
         }
 
-        // Set Difference
+        // Diferencia de Conjuntos
         const onlyAArr = [];
         materialsA.forEach(m => {
             if (!materialsB.has(m)) onlyAArr.push(m);
@@ -482,7 +482,7 @@ class InsightEngineService {
             if (match) return match;
         }
 
-        return null; // Fallback
+        return null; // Respaldo
     }
 
     /**
@@ -565,14 +565,14 @@ class InsightEngineService {
         const movClassCol = cols.find(c => c === "CLASE_MOVIMIENTO") || cols.find(c => c.includes("CLASE")) || cols.find(c => c.includes("MOV_TYPE") || c.includes("BWART"));
         const sumaNetaCol = cols.find(c => c === "SUMA_NETA") || cols.find(c => c.toUpperCase().includes("SUMA_NETA"));
 
-        // Group column fuzzy matching
+        // Búsqueda difusa para columna de grupo
         const groupCol = cols.find(c => c === "GRUPO_ARTICULOS") ||
             cols.find(c => c.includes("GRUPO")) ||
             cols.find(c => c.includes("ARTICULO") && !c.includes("GRUPO_ARTICULO")) ||
             cols.find(c => c.includes("MATKL")) ||
             cols.find(c => c.includes("GROUP"));
 
-        // Material column fuzzy matching
+        // Búsqueda difusa para columna de material
         const materialCol = cols.find(c => c === "MATERIAL") ||
             cols.find(c => c === "MATERIAL1") ||
             cols.find(c => c.includes("MATNR")) ||

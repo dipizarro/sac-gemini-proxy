@@ -223,7 +223,7 @@ class DataService {
         }
     }
     /**
-     * Obtains rows from cache or loads them from CSV.
+     * Obtiene filas de la caché o las carga desde el CSV.
      * @returns {Array} rows
      */
     async getRowsCached() {
@@ -257,7 +257,7 @@ class DataService {
                         relax_quotes: true
                     });
                     if (rows && rows.length > 0) {
-                        CacheService.set(CACHE_KEY, rows, 10 * 60 * 1000); // 10 min for live data
+                        CacheService.set(CACHE_KEY, rows, 10 * 60 * 1000); // 10 minutos para datos en vivo
                     }
                 } else {
                     throw new Error("No hay datos en caché, el CSV local falló y no hay URL de exportación configurada.");
@@ -270,7 +270,7 @@ class DataService {
     clearCache() {
         const CacheService = require("./CacheService");
         CacheService.del("MOVMAT_DATA");
-        // Clean dependent items like the dataset profile
+        // Limpiar elementos dependientes como el perfil del dataset
         const DatasetProfileService = require("./DatasetProfileService");
         DatasetProfileService.clearProfileCache();
         console.log("DataService: All local caches cleared.");

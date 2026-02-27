@@ -4,9 +4,9 @@ const { toNumberSmart } = require("../utils/helpers");
 class SummaryService {
 
     /**
-     * Builds a rich summary from the full dataset.
-     * @param {Array} rows - Full dataset
-     * @returns {Object} Rich summary object
+     * Construye un resumen enriquecido a partir del dataset completo.
+     * @param {Array} rows - Conjunto de datos completo
+     * @returns {Object} Objeto de resumen enriquecido
      */
     buildRichSummary(rows) {
         if (!rows || rows.length === 0) return { error: "No data" };
@@ -16,12 +16,12 @@ class SummaryService {
             generatedAt: new Date().toISOString()
         };
 
-        // 1. Column Detection
+        // 1. Detección de Columnas
         const firstRow = rows[0];
         summary.columns = Object.keys(firstRow);
 
-        // 2. Numeric Stats (SUMA_NETA / COL_8)
-        // Detect numeric column: prefer SUMA_NETA, fallback to COL_8
+        // 2. Estadísticas Numéricas (SUMA_NETA / COL_8)
+        // Detectar columna numérica: preferir SUMA_NETA, respaldo a COL_8
         const numCol = summary.columns.find(c => c.includes("SUMA_NETA")) || "COL_8";
         if (numCol && firstRow[numCol] !== undefined) {
             let min = Infinity, max = -Infinity, sum = 0, count = 0;
@@ -52,13 +52,13 @@ class SummaryService {
             }
         }
 
-        // 3. Date Range (FECHA)
+        // 3. Rango de Fechas (FECHA)
         const dateCol = summary.columns.find(c => c.includes("FECHA"));
         if (dateCol) {
             let minDate = null, maxDate = null;
             rows.forEach(r => {
                 const d = r[dateCol];
-                if (d) { // Simple string comparison works for ISO/YYYYMMDD, crude for others but fast
+                if (d) { // Una simple comparación de strings funciona para ISO/YYYYMMDD, rústico para otros pero rápido
                     if (!minDate || d < minDate) minDate = d;
                     if (!maxDate || d > maxDate) maxDate = d;
                 }
@@ -66,8 +66,8 @@ class SummaryService {
             summary.dateRange = { column: dateCol, min: minDate, max: maxDate };
         }
 
-        // 4. Categorical Breakdowns (Top 20)
-        // Helper to get top N
+        // 4. Desgloses Categóricos (Top 20)
+        // Función auxiliar para obtener el Top N
         const getTop = (col, n = 20) => {
             if (!firstRow[col]) return null;
             const counts = DataService.countBy(rows, col);
@@ -79,8 +79,8 @@ class SummaryService {
         summary.topMateriales = getTop("MATERIAL1");
         summary.topGrupos = getTop("GRUPO_ARTICULOS");
 
-        // 5. Smart Sampling (Stratified-ish)
-        // Pick rows distributed across the dataset to get variety
+        // 5. Muestreo Inteligente (Enfoque estratificado)
+        // Seleccionar filas distribuidas por todo el dataset para obtener variedad
         const sampleSize = 30;
         const step = Math.max(1, Math.floor(rows.length / sampleSize));
         summary.sampleRows = [];

@@ -4,28 +4,28 @@ const OAuthService = require('./OAuthService');
 class ExportService {
 
     /**
-     * Helper to get the base Export URL and validate it.
+     * Función auxiliar para obtener la URL base de Exportación y validarla.
      */
     _getExportUrl() {
         const url = config.datasphere.exportUrl;
         if (!url) {
             throw new Error("Missing DATASPHERE_EXPORT_URL in config");
         }
-        // Remove trailing slash if present
+        // Remover barra inclinada final si está presente
         return url.replace(/\/$/, "");
     }
 
     /**
-     * Creates an export job.
+     * Crea un job de exportación.
      * @param {Object} params
-     * @param {string} params.resourcePath - Path to the Datasphere resource (e.g., "Space/View")
-     * @param {string} [params.format='csv'] - Export format
-     * @returns {Promise<string>} Job ID
+     * @param {string} params.resourcePath - Ruta al recurso de Datasphere (ej., "Space/View")
+     * @param {string} [params.format='csv'] - Formato de exportación
+     * @returns {Promise<string>} ID del Job
      */
     async createExportJob({ resourcePath, format = 'csv' }) {
         const token = await OAuthService.getAccessToken();
         const baseUrl = this._getExportUrl();
-        const url = `${baseUrl}/jobs`; // Standard REST pattern: POST /jobs
+        const url = `${baseUrl}/jobs`; // Patrón REST estándar: POST /jobs
 
         try {
             const response = await fetch(url, {
@@ -44,7 +44,7 @@ class ExportService {
             }
 
             const data = await response.json();
-            // Assume response contains { id: "job-id" } or similar. Adjust field name if API differs.
+            // Asume que la respuesta contiene { id: "job-id" } o similar. Ajustar campo si la API difiere.
             if (!data.id && !data.jobId) {
                 throw new Error(`Export job created but no ID returned. Response: ${JSON.stringify(data)}`);
             }
@@ -56,11 +56,11 @@ class ExportService {
     }
 
     /**
-     * Polls the job status until completion or timeout.
+     * Consulta el estado del job hasta que se complete o se agote el tiempo.
      * @param {string} jobId
      * @param {Object} options
-     * @param {number} [options.timeoutMs=300000] - Max wait time (default 5 min)
-     * @param {number} [options.intervalMs=5000] - Polling interval (default 5 sec)
+     * @param {number} [options.timeoutMs=300000] - Tiempo máximo de espera (por defecto 5 min)
+     * @param {number} [options.intervalMs=5000] - Intervalo de consulta (por defecto 5 seg)
      */
     async waitExportJob(jobId, { timeoutMs = 300000, intervalMs = 5000 } = {}) {
         const token = await OAuthService.getAccessToken();
@@ -85,40 +85,40 @@ class ExportService {
 
                 if (!response.ok) {
                     const errorText = await response.text();
-                    // If 404, maybe it's not ready yet? Or assumes error. We throw for now.
+                    // Si es 404, ¿quizás aún no está listo? O asume error. Lanzamos error por ahora.
                     throw new Error(`Failed to check job status: ${response.status} ${response.statusText} - ${errorText}`);
                 }
 
                 const data = await response.json();
                 const status = (data.status || "").toLowerCase();
 
-                // Check terminal states
+                // Validar estados finales
                 if (status === 'completed' || status === 'success') {
-                    return data; // Job done
+                    return data; // Job completado
                 }
                 if (status === 'failed' || status === 'error' || status === 'aborted') {
                     throw new Error(`Export job failed. Status: ${status}. Details: ${JSON.stringify(data)}`);
                 }
 
-                // Wait before next poll
+                // Esperar antes de la próxima consulta
                 await new Promise(resolve => setTimeout(resolve, intervalMs));
 
             } catch (error) {
-                // If network error, might want to retry, but for simplicity we rethrow wrap
+                // Si hay error de red, podría reintentarse, pero por simplicidad relanzamos
                 throw new Error(`Wait Export Job Error: ${error.message}`);
             }
         }
     }
 
     /**
-     * Downloads the export result.
+     * Descarga el resultado de la exportación.
      * @param {string} jobId
-     * @returns {Promise<Buffer>} File content buffer
+     * @returns {Promise<Buffer>} Buffer del contenido del archivo
      */
     async downloadExport(jobId) {
         const token = await OAuthService.getAccessToken();
         const baseUrl = this._getExportUrl();
-        // Assume endpoint is /jobs/{id}/data or /jobs/{id}/file
+        // Asume que el endpoint es /jobs/{id}/data o /jobs/{id}/file
         const url = `${baseUrl}/jobs/${jobId}/data`;
 
         try {
@@ -126,7 +126,7 @@ class ExportService {
                 method: 'GET',
                 headers: {
                     'Authorization': `Bearer ${token}`
-                    // No Accept JSON, expecting binary/text stream
+                    // No enviar Accept JSON, se espera un flujo binario/texto
                 }
             });
 
@@ -144,23 +144,23 @@ class ExportService {
     }
 
     /**
-     * Helper: Orchestrates creation, waiting, and downloading.
+     * Función auxiliar: Orquesta la creación, espera y descarga.
      * @param {Object} params
      * @param {string} params.resourcePath
-     * @returns {Promise<Buffer>} CSV content
+     * @returns {Promise<Buffer>} Contenido CSV
      */
     async exportToCsvBuffer({ resourcePath }) {
         console.log(`[ExportService] Starting export for ${resourcePath}...`);
 
-        // 1. Create Job
+        // 1. Crear Job
         const jobId = await this.createExportJob({ resourcePath, format: 'csv' });
         console.log(`[ExportService] Job created: ${jobId}. Waiting...`);
 
-        // 2. Wait for completion
+        // 2. Esperar completitud
         await this.waitExportJob(jobId, { timeoutMs: 60000, intervalMs: 2000 });
         console.log(`[ExportService] Job ${jobId} completed. Downloading...`);
 
-        // 3. Download
+        // 3. Descargar
         const buffer = await this.downloadExport(jobId);
         console.log(`[ExportService] Download complete (${buffer.length} bytes).`);
 
