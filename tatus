@@ -1,0 +1,29 @@
+* [33m4fd2860[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mSprint-2-intents-slots[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/develop[m[33m, [m[1;31morigin/demo[m[33m, [m[1;31morigin/Sprint-2-intents-slots[m[33m, [m[1;32mmain[m[33m, [m[1;32mdevelop[m[33m, [m[1;32mdemo[m[33m)[m Fixing Undefined Month Names in compare_total_volume_between_months
+* [33m22c6827[m intent: sum_suma_neta_by_group_and_date
+* [33md7b7ce0[m Implement Unified Robust Number Parsing
+* [33m196842e[m  Fix diff_distinct_centers_between_months logic
+* [33m56c04f1[m soportar “header doble” + columnas vacías iniciales (y rescatar SUMA_NETA)
+* [33m2490bac[m Intent: compare_total_volume_between_months
+* [33me22307b[m Intent: materials_without_movements_feb_vs_jan
+* [33m498902e[m Intent: compare_suma_neta_between_months
+* [33mf5d8f15[m Intent: diff_distinct_centers_between_months
+* [33m182c49c[m intents : compare_activity_by_months, patterns_in_quarter, max_active_centers_day, prioritize_centers_over_period
+* [33m8afdd53[m intent: count_distinct_centers_by_date_range
+* [33med2c1c8[m  intent: top_centers_by_movements_on_date
+* [33m1ce8a2a[m intent: count_movements_by_date
+* [33m23945d6[m[33m ([m[1;31morigin/Sprint-1[m[33m, [m[1;32mSprint-1[m[33m)[m Conteo Exacto de Centros por Fecha
+* [33m3a43fbb[m agrega csv al repo
+* [33me151bbc[m Arreglar input (y opcional textarea) estilo SAP/Fiori
+* [33m4e1c4bf[m  UI Estilo SAP Fiori (Input + Botón)
+* [33mabcd6ff[m UI: panel CSV + botón recargar + mini-tablas
+* [33m38b9973[m Endpoints CSV status/reload/summary
+* [33mb6db88f[m Endpoint de prueba /ds/export/preview
+* [33mcdb9e59[m Crear ExportService.js
+* [33m367e713[m Dejar de rastrear el archivo .env
+* [33mc8fd041[m fix: Se actualiza gitignore para no exponer secretos.
+* [33m96451f0[m Se actualiza gitignore para no exponer secretos.
+* [33m29229ef[m Conectar /chat a OData (pre-agregación antes de Gemini)
+* [33m9ee4fb9[m Modificar DataService.js para llamar OData con Bearer
+* [33m601388e[m Crear OAuthService.js (client_credentials + cache)
+* [33mdc48079[m first commit
+* [33mbe00c5f[m first commit
