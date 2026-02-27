@@ -1,43 +1,46 @@
 const express = require("express");
 const router = express.Router();
+
 const ChatController = require("../controllers/ChatController");
+const CsvController = require("../controllers/CsvController");
 const WidgetController = require("../controllers/WidgetController");
+const ExportController = require("../controllers/ExportController");
 
-router.get("/health", (req, res) => {
-    res.json({ ok: true, service: "sac-gemini-proxy" });
-});
+router.get("/health", (req, res) => res.json({ success: true, service: "sac-gemini-proxy" }));
 
-router.post("/chat", (req, res) => ChatController.handleChat(req, res));
-router.get("/ds/movmat", (req, res) => ChatController.proxyDatasphere(req, res));
-router.get("/csv/preview", (req, res) => ChatController.getCsvPreview(req, res));
+// Chat & Datasphere Proxy
+router.post("/chat", ChatController.handleChat.bind(ChatController));
+router.get("/ds/movmat", ChatController.proxyDatasphere.bind(ChatController));
 
-router.get("/widget/main.js", (req, res) => WidgetController.serveWidget(req, res));
-router.get("/demo", (req, res) => WidgetController.serveDemo(req, res));
+// Widget UI
+router.get("/widget/main.js", WidgetController.serveWidget.bind(WidgetController));
+router.get("/demo", WidgetController.serveDemo.bind(WidgetController));
 
 // Export Preview
-const ExportController = require("../controllers/ExportController");
-router.get("/ds/export/preview", (req, res) => ExportController.getPreview(req, res));
+router.get("/ds/export/preview", ExportController.getPreview.bind(ExportController));
 
 // CSV Management
-const CsvController = require("../controllers/CsvController");
-router.get("/csv/status", (req, res) => CsvController.getStatus(req, res));
-router.post("/csv/reload", (req, res) => CsvController.reload(req, res));
-router.get("/csv/summary", (req, res) => CsvController.getSummary(req, res));
-router.get("/csv/profile", (req, res) => CsvController.getProfile(req, res));
-router.get("/csv/query/distinct-centers", (req, res) => CsvController.getDistinctCenters(req, res));
-router.get("/csv/query/movements", (req, res) => ChatController.getCsvMovementsByDate(req, res));
-router.get("/csv/query/top-centers", (req, res) => ChatController.getCsvTopCentersByMovements(req, res));
-router.get("/csv/query/distinct-centers-range", (req, res) => ChatController.getCsvDistinctCentersRange(req, res));
-router.get("/csv/query/suma-neta", (req, res) => ChatController.getCsvSumaNetaByGroupAndDate(req, res));
+router.get("/csv/status", CsvController.getStatus.bind(CsvController));
+router.post("/csv/reload", CsvController.reload.bind(CsvController));
+router.get("/csv/summary", CsvController.getSummary.bind(CsvController));
+router.get("/csv/profile", CsvController.getProfile.bind(CsvController));
+router.get("/csv/preview", CsvController.getCsvPreview.bind(CsvController));
+
+// CSV Queries
+router.get("/csv/query/distinct-centers", CsvController.getDistinctCenters.bind(CsvController));
+router.get("/csv/query/movements", CsvController.getCsvMovementsByDate.bind(CsvController));
+router.get("/csv/query/top-centers", CsvController.getCsvTopCentersByMovements.bind(CsvController));
+router.get("/csv/query/distinct-centers-range", CsvController.getCsvDistinctCentersRange.bind(CsvController));
+router.get("/csv/query/suma-neta", CsvController.getCsvSumaNetaByGroupAndDate.bind(CsvController));
 
 // Insight Engine Endpoints
-router.get("/csv/insights/compare-months", (req, res) => ChatController.getCsvInsightCompareMonths(req, res));
-router.get("/csv/insights/max-active-day", (req, res) => ChatController.getCsvInsightMaxActiveDay(req, res));
-router.get("/csv/insights/quarter", (req, res) => ChatController.getCsvInsightQuarter(req, res));
-router.get("/csv/insights/prioritize", (req, res) => ChatController.getCsvInsightPrioritize(req, res));
-router.get("/csv/insights/diff-centers", (req, res) => ChatController.getCsvInsightDiffCenters(req, res));
-router.get("/csv/insights/compare-sumaneta", (req, res) => ChatController.getCsvInsightCompareSumaNeta(req, res));
-router.get("/csv/insights/group-centers", (req, res) => ChatController.getCsvInsightGroupCenters(req, res));
-router.get("/csv/insights/material-diff", (req, res) => ChatController.getCsvInsightMaterialDiff(req, res));
+router.get("/csv/insights/compare-months", CsvController.getCsvInsightCompareMonths.bind(CsvController));
+router.get("/csv/insights/max-active-day", CsvController.getCsvInsightMaxActiveDay.bind(CsvController));
+router.get("/csv/insights/quarter", CsvController.getCsvInsightQuarter.bind(CsvController));
+router.get("/csv/insights/prioritize", CsvController.getCsvInsightPrioritize.bind(CsvController));
+router.get("/csv/insights/diff-centers", CsvController.getCsvInsightDiffCenters.bind(CsvController));
+router.get("/csv/insights/compare-sumaneta", CsvController.getCsvInsightCompareSumaNeta.bind(CsvController));
+router.get("/csv/insights/group-centers", CsvController.getCsvInsightGroupCenters.bind(CsvController));
+router.get("/csv/insights/material-diff", CsvController.getCsvInsightMaterialDiff.bind(CsvController));
 
 module.exports = router;

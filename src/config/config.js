@@ -1,5 +1,14 @@
 require("dotenv").config();
 
+// Validación simple de variables de entorno (previene caídas y bugs silenciosos)
+const requiredEnvs = ["GEMINI_API_KEY"];
+for (const envKey of requiredEnvs) {
+    if (!process.env[envKey]) {
+        console.warn(`[Config Warning] Falta la variable de entorno crítica: ${envKey}`);
+        // throw new Error(`Falta variable de entorno: ${envKey}`); // Descomentar para hacer Fail Fast
+    }
+}
+
 module.exports = {
     port: process.env.PORT || 3000,
     gemini: {
