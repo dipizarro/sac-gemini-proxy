@@ -9,15 +9,15 @@ class QueryService {
     }
 
     /**
-     * Gets or creates the index from cache/source.
+     * Obtiene o crea el índice desde la caché o fuente de datos.
      */
     _getIndex() {
         let index = CacheService.get(this.INDEX_CACHE_KEY);
         if (!index) {
             console.log("QueryService: Index missing, rebuilding...");
-            // Load full data
-            // We assume DataService has the source of truth logic (fs load)
-            // But ideally we get it from CacheService("MOVMAT_DATA") first
+            // Cargar datos completos
+            // Asumimos que DataService tiene la lógica de la fuente de verdad (cargar del fs)
+            // Pero idealmente lo obtenemos primero de CacheService("MOVMAT_DATA")
             let rows = CacheService.get("MOVMAT_DATA");
             if (!rows) {
                 rows = DataService.loadMovMatCsv();
@@ -25,13 +25,13 @@ class QueryService {
             }
 
             index = IndexService.buildIndexes(rows);
-            CacheService.set(this.INDEX_CACHE_KEY, index, 24 * 60 * 60 * 1000); // 24 hours
+            CacheService.set(this.INDEX_CACHE_KEY, index, 24 * 60 * 60 * 1000); // 24 horas
         }
         return index;
     }
 
     /**
-     * Counts distinct centers for a specific date.
+     * Cuenta los centros distintos para una fecha específica.
      * @param {string} dateKey - YYYY-MM-DD
      */
     countDistinctCentersByDate(dateKey) {
@@ -57,7 +57,7 @@ class QueryService {
     }
 
     /**
-     * Helper to invalidate index (called on CSV reload)
+     * Función auxiliar para invalidar el índice (se llama al recargar CSV)
      */
     invalidateIndex() {
         CacheService.del(this.INDEX_CACHE_KEY);

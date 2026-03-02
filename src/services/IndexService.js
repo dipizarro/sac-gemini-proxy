@@ -3,8 +3,8 @@ const { normalizeHeader } = require("../utils/helpers");
 class IndexService {
 
     /**
-     * Builds an index mapping dates to a Set of distinct centers.
-     * @param {Array} rows - Full dataset
+     * Construye un índice mapeando fechas a un Set de centros distintos.
+     * @param {Array} rows - Conjunto de datos completo
      * @returns {Map<string, Set<string>>} Map<DateString, Set<CenterID>>
      */
     buildIndexes(rows) {
@@ -13,14 +13,14 @@ class IndexService {
 
         if (!rows || rows.length === 0) return { centersByDate };
 
-        // Auto-detect columns
+        // Autodetectar columnas
         const firstRow = rows[0];
         const cols = Object.keys(firstRow);
 
-        // Find Date Column (prefer FECHA, fallback to anything with 'FECHA' or 'DATE')
+        // Buscar columna de fecha (preferir FECHA, respaldo a cualquiera con 'FECHA' o 'DATE')
         const dateCol = cols.find(c => c === "FECHA") || cols.find(c => c.includes("FECHA")) || cols.find(c => c.includes("DATE"));
 
-        // Find Center Column (ID_CENTRO, CENTRO, PLANT, WERKS)
+        // Buscar columna de centro (ID_CENTRO, CENTRO, PLANT, WERKS)
         const centerCol = cols.find(c => c === "ID_CENTRO") || cols.find(c => c.includes("CENTRO")) || cols.find(c => c.includes("PLANT"));
 
         if (!dateCol || !centerCol) {
@@ -37,7 +37,7 @@ class IndexService {
             if (!rawDate || !center) return;
 
             const dateKey = this.normalizeDate(rawDate);
-            if (!dateKey) return; // Skip invalid dates
+            if (!dateKey) return; // Omitir fechas inválidas
 
             if (!centersByDate.has(dateKey)) {
                 centersByDate.set(dateKey, new Set());
@@ -50,7 +50,7 @@ class IndexService {
     }
 
     /**
-     * Normalizes various date formats to YYYY-MM-DD
+     * Normaliza varios formatos de fecha a YYYY-MM-DD
      */
     normalizeDate(raw) {
         if (!raw) return null;
@@ -72,7 +72,7 @@ class IndexService {
             return `${str.substring(0, 4)}-${str.substring(4, 6)}-${str.substring(6, 8)}`;
         }
 
-        return null; // Unknown format
+        return null; // Formato desconocido
     }
 }
 

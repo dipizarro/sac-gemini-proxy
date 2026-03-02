@@ -4,9 +4,9 @@ class CacheService {
     }
 
     /**
-     * Retrieve a value from the cache.
+     * Recupera un valor de la caché.
      * @param {string} key 
-     * @returns {any|null} The cached value or null if missing/expired.
+     * @returns {any|null} El valor en caché o null si no existe/expiró.
      */
     get(key) {
         if (!this.cache.has(key)) return null;
@@ -21,10 +21,10 @@ class CacheService {
     }
 
     /**
-     * Store a value in the cache.
+     * Almacena un valor en la caché.
      * @param {string} key 
      * @param {any} value 
-     * @param {number} ttlMs - Time to live in milliseconds (default 10 mins).
+     * @param {number} ttlMs - Tiempo de vida en milisegundos (por defecto 10 mins).
      */
     set(key, value, ttlMs = 600000) {
         this.cache.set(key, {
@@ -34,7 +34,7 @@ class CacheService {
     }
 
     /**
-     * Delete a key from the cache.
+     * Elimina una clave de la caché.
      * @param {string} key 
      */
     del(key) {
@@ -42,7 +42,7 @@ class CacheService {
     }
 
     /**
-     * Clear all cache.
+     * Limpia toda la caché.
      */
     flush() {
         this.cache.clear();

@@ -3,7 +3,7 @@ const GeminiService = require("../services/GeminiService");
 const config = require("../config/config");
 
 class ChatController {
-    async handleChat(req, res) {
+    async handleChat(req, res, next) {
         try {
             const { message, history } = req.body || {};
             if (!message || typeof message !== "string") {
@@ -353,228 +353,11 @@ class ChatController {
             });
 
         } catch (err) {
-            console.error("ChatController Error:", err);
-            return res.status(500).json({ error: "Internal Server Error", details: err.message });
+            next(err);
         }
     }
 
-    async getCsvPreview(req, res) {
-        try {
-            const rows = DataService.loadMovMatCsv();
-            res.json({ count: rows.length, sample: rows.slice(0, 5) });
-        } catch (err) {
-            res.status(500).json({ error: "Failed to load CSV", details: err.message });
-        }
-    }
-
-    async getCsvMovementsByDate(req, res) {
-        try {
-            const { date } = req.query;
-            if (!date) {
-                return res.status(400).json({ ok: false, error: "Missing 'date' query parameter (YYYY-MM-DD)" });
-            }
-
-            const QueryEngineService = require("../services/QueryEngineService");
-            const rows = await DataService.getRowsCached();
-            const result = QueryEngineService.countMovementsByDate(rows, date);
-
-            return res.json({
-                ok: true,
-                date: result.date,
-                movements: result.movements
-            });
-        } catch (err) {
-            console.error("getCsvMovementsByDate Error:", err);
-            return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });
-        }
-    }
-
-    async getCsvTopCentersByMovements(req, res) {
-        try {
-            const { date, top } = req.query;
-            if (!date) {
-                return res.status(400).json({ ok: false, error: "Missing 'date' query parameter (YYYY-MM-DD)" });
-            }
-
-            const topN = top ? parseInt(top, 10) : 5;
-            const QueryEngineService = require("../services/QueryEngineService");
-            const rows = await DataService.getRowsCached();
-            const result = QueryEngineService.topCentersByMovementsOnDate(rows, date, topN);
-
-            return res.json({
-                ok: true,
-                date: result.date,
-                topCenters: result.results,
-                distinctCentersTotal: result.totals.distinctCenters
-            });
-        } catch (err) {
-            console.error("getCsvTopCentersByMovements Error:", err);
-            return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });
-        }
-    }
-
-    async getCsvSumaNetaByGroupAndDate(req, res) {
-        try {
-            const { date, group, top } = req.query;
-            if (!date || !group) {
-                return res.status(400).json({ ok: false, error: "Missing 'date' (YYYY-MM-DD) or 'group' query parameters" });
-            }
-
-            const topN = top ? parseInt(top, 10) : 10;
-            const QueryEngineService = require("../services/QueryEngineService");
-            const rows = await DataService.getRowsCached();
-            const result = QueryEngineService.sumSumaNetaByGroupAndDate(rows, date, group, { top: topN });
-
-            if (result.error) {
-                return res.status(400).json({ ok: false, error: result.error });
-            }
-
-            return res.json({
-                ok: true,
-                date: result.date,
-                group: result.group,
-                totalSumaNeta: result.totalSumaNeta,
-                distinctCenters: result.distinctCenters,
-                topCenters: result.topCenters
-            });
-        } catch (err) {
-            console.error("getCsvSumaNetaByGroupAndDate Error:", err);
-            return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });
-        }
-    }
-
-    async getCsvDistinctCentersRange(req, res) {
-        try {
-            const { from, to } = req.query;
-            if (!from || !to) {
-                return res.status(400).json({ ok: false, error: "Missing 'from' or 'to' query parameter (YYYY-MM-DD)" });
-            }
-
-            const QueryEngineService = require("../services/QueryEngineService");
-            const rows = await DataService.getRowsCached();
-            const result = QueryEngineService.countDistinctCentersByDateRange(rows, from, to);
-
-            return res.json({
-                ok: true,
-                from: result.from,
-                to: result.to,
-                distinctCenters: result.distinctCenters
-            });
-        } catch (err) {
-            console.error("getCsvDistinctCentersRange Error:", err);
-            return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });
-        }
-    }
-
-    // --- Endpoints para Insight Engine ---
-
-    async getCsvInsightCompareMonths(req, res) {
-        try {
-            const { year, a, b, metric } = req.query;
-            if (!year || !a || !b) return res.status(400).json({ ok: false, error: "Missing year, a, or b" });
-            const InsightEngineService = require("../services/InsightEngineService");
-            const rows = await DataService.getRowsCached();
-            const result = InsightEngineService.compareMonths(rows, parseInt(year), parseInt(a), parseInt(b), metric || "movements");
-            return res.json({ ok: true, ...result });
-        } catch (err) {
-            return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });
-        }
-    }
-
-    async getCsvInsightMaxActiveDay(req, res) {
-        try {
-            const { year } = req.query;
-            if (!year) return res.status(400).json({ ok: false, error: "Missing year" });
-            const InsightEngineService = require("../services/InsightEngineService");
-            const rows = await DataService.getRowsCached();
-            const result = InsightEngineService.maxActiveCentersDay(rows, parseInt(year));
-            return res.json({ ok: true, ...result });
-        } catch (err) {
-            return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });
-        }
-    }
-
-    async getCsvInsightQuarter(req, res) {
-        try {
-            const { year, q } = req.query;
-            if (!year || !q) return res.status(400).json({ ok: false, error: "Missing year or q" });
-            const InsightEngineService = require("../services/InsightEngineService");
-            const rows = await DataService.getRowsCached();
-            const result = InsightEngineService.quarterPatterns(rows, parseInt(year), parseInt(q));
-            return res.json({ ok: true, ...result });
-        } catch (err) {
-            return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });
-        }
-    }
-
-    async getCsvInsightPrioritize(req, res) {
-        try {
-            const { year } = req.query;
-            const InsightEngineService = require("../services/InsightEngineService");
-            const rows = await DataService.getRowsCached();
-            const result = InsightEngineService.prioritizeCenters(rows, { year: year ? parseInt(year) : null });
-            return res.json({ ok: true, ...result });
-        } catch (err) {
-            return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });
-        }
-    }
-
-    async getCsvInsightDiffCenters(req, res) {
-        try {
-            const { year, a, b } = req.query;
-            if (!year || !a || !b) return res.status(400).json({ ok: false, error: "Missing year, a, or b" });
-            const InsightEngineService = require("../services/InsightEngineService");
-            const rows = await DataService.getRowsCached();
-            const result = InsightEngineService.diffDistinctCentersMonths(rows, parseInt(year), parseInt(a), parseInt(b));
-            return res.json({ ok: true, ...result });
-        } catch (err) {
-            return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });
-        }
-    }
-
-    async getCsvInsightCompareSumaNeta(req, res) {
-        try {
-            const { year, a, b } = req.query;
-            if (!year || !a || !b) return res.status(400).json({ ok: false, error: "Missing year, a, or b" });
-            const InsightEngineService = require("../services/InsightEngineService");
-            const rows = await DataService.getRowsCached();
-            const result = InsightEngineService.compareSumaNetaMonths(rows, parseInt(year), parseInt(a), parseInt(b));
-            if (result.error) return res.status(400).json({ ok: false, ...result });
-            return res.json({ ok: true, ...result });
-        } catch (err) {
-            return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });
-        }
-    }
-
-    async getCsvInsightGroupCenters(req, res) {
-        try {
-            const { year, a, b, group } = req.query;
-            if (!year || !a || !b || !group) return res.status(400).json({ ok: false, error: "Missing year, a, b, or group" });
-            const InsightEngineService = require("../services/InsightEngineService");
-            const rows = await DataService.getRowsCached();
-            const result = InsightEngineService.distinctCentersByGroupMonths(rows, parseInt(year), parseInt(a), parseInt(b), group);
-            if (result.error) return res.status(400).json({ ok: false, ...result });
-            return res.json({ ok: true, ...result });
-        } catch (err) {
-            return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });
-        }
-    }
-
-    async getCsvInsightMaterialDiff(req, res) {
-        try {
-            const { year, a, b } = req.query;
-            if (!year || !a || !b) return res.status(400).json({ ok: false, error: "Missing year, a, or b" });
-            const InsightEngineService = require("../services/InsightEngineService");
-            const rows = await DataService.getRowsCached();
-            const result = InsightEngineService.materialsWithoutMovementsMonths(rows, parseInt(year), parseInt(a), parseInt(b));
-            if (result.error) return res.status(400).json({ ok: false, ...result });
-            return res.json({ ok: true, ...result });
-        } catch (err) {
-            return res.status(500).json({ ok: false, error: "Internal Server Error", details: err.message });
-        }
-    }
-
-    async proxyDatasphere(req, res) {
+    async proxyDatasphere(req, res, next) {
         try {
             const url = `${config.datasphere.url}?$top=50&$format=json`;
             const auth = Buffer.from(`${config.datasphere.user}:${config.datasphere.pass}`).toString("base64");
@@ -589,7 +372,7 @@ class ChatController {
             const text = await r.text();
             res.status(r.status).type("application/json").send(text);
         } catch (err) {
-            res.status(500).json({ error: "Datasphere proxy error", details: err.message });
+            next(err);
         }
     }
 }
