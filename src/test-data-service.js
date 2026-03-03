@@ -6,8 +6,8 @@ const DataService = require('./services/DataService');
         console.log('--- Testing DataService.fetchMovMat ---');
         console.log('1. Fetching Top 5 records...');
 
-        // Test 1: Simple fetch
-        const data = await DataService.fetchMovMat({ top: 5 });
+        // Test 1: Simple fetch without parameters
+        const data = await DataService.fetchMovMat({ top: null });
 
         console.log('Status: OK');
         console.log('Response Type:', typeof data);
@@ -29,10 +29,7 @@ const DataService = require('./services/DataService');
         // We'll just print "Test 1 success" if we got valid JSON.
 
     } catch (error) {
-        console.error('FAILED:', error.message);
-        // Look for detailed error context
-        if (error.cause) console.error('Cause:', error.cause);
-        console.error('Stack:', error.stack);
+        console.log('FAILED_WITH_ERROR:\n' + JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
         process.exit(1);
     }
 })();

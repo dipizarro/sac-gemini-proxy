@@ -1,111 +1,11 @@
-const fs = require("fs");
-const path = require("path");
-const iconv = require("iconv-lite");
-const { parse } = require("csv-parse/sync");
-const { normalizeHeader, toNumberSmart } = require("../utils/helpers");
+const { toNumberSmart } = require("../utils/helpers");
 const OAuthService = require("./OAuthService");
 const config = require("../config/config");
+const { getDataProvider } = require("../providers/DataProviderFactory");
 
 class DataService {
     constructor() {
-        this.csvPath = path.join(process.cwd(), "data", "3V_MM_MOVMAT_01_3M.csv");
-    }
-
-    loadByPath(filePath) { // Para pruebas o flexibilidad
-        const raw = fs.readFileSync(filePath);
-        const text = iconv.decode(raw, "utf8");
-        const lines = text.split(/\r?\n/);
-
-        // 1. Busca la fila del header real (la que contiene MATERIAL1)
-        let headerIdx = -1;
-        for (let i = 0; i < lines.length; i++) {
-            if (lines[i].includes("MATERIAL1")) {
-                headerIdx = i;
-                break;
-            }
-        }
-
-        if (headerIdx === -1) throw new Error("No encontré el header real (MATERIAL1) en el CSV.");
-
-        // 2. Extraer el header base "h2"
-        const h2Raw = lines[headerIdx];
-        const h2Array = parse(h2Raw, { delimiter: ',', columns: false, relax_quotes: true })[0] || [];
-        let finalHeaders = [...h2Array];
-        let isDoubleHeader = false;
-
-        // 3. Detectar si la fila inmediatamente superior tiene variables rezagadas como SUMA_NETA
-        if (headerIdx > 0) {
-            const lineAbove = lines[headerIdx - 1];
-            if (lineAbove.includes("SUMA_NETA") || lineAbove.includes("Indicadores")) {
-                isDoubleHeader = true;
-                const h1Array = parse(lineAbove, { delimiter: ',', columns: false, relax_quotes: true })[0] || [];
-
-                // Mezclamos rescatando valores de h1 sobre los huecos vacíos de h2
-                for (let i = 0; i < h2Array.length; i++) {
-                    const h2Val = h2Array[i] ? h2Array[i].trim() : "";
-                    const h1Val = h1Array[i] ? h1Array[i].trim() : "";
-                    if (h2Val === "" && h1Val !== "") {
-                        finalHeaders[i] = h1Val;
-                    }
-                }
-            }
-        }
-
-        // 4. Trimming de columnas basura al inicio (e.g. `,,MATERIAL1`)
-        let leadingEmpty = 0;
-        for (let i = 0; i < finalHeaders.length; i++) {
-            if (!finalHeaders[i] || finalHeaders[i].trim() === "") {
-                leadingEmpty++;
-            } else {
-                break;
-            }
-        }
-
-        const normalizedHeaders = finalHeaders.slice(leadingEmpty).map(normalizeHeader);
-
-        console.log(`[CSV] headerMode=${isDoubleHeader ? 'double' : 'single'}, leadingEmpty=${leadingEmpty}`);
-
-        // 5. Unir y parsear sólamente la data en bruto post-header
-        const dataStr = lines.slice(headerIdx + 1).join("\n");
-        let rows = [];
-
-        if (leadingEmpty > 0) {
-            // Leer como array crudo (no dicta keys automáticamente) para rebanar columnas basura
-            const rawRecords = parse(dataStr, {
-                bom: true,
-                delimiter: ",",
-                skip_empty_lines: true,
-                relax_quotes: true,
-                relax_column_count: true,
-                columns: false
-            });
-
-            rows = rawRecords.map(record => {
-                const trimmedRecord = record.slice(leadingEmpty);
-                const obj = {};
-                normalizedHeaders.forEach((header, index) => {
-                    obj[header] = trimmedRecord[index];
-                });
-                return obj;
-            });
-        } else {
-            // Funcionamiento habitual limpio
-            rows = parse(dataStr, {
-                bom: true,
-                delimiter: ",",
-                skip_empty_lines: true,
-                relax_quotes: true,
-                relax_column_count: true,
-                trim: true,
-                columns: normalizedHeaders
-            });
-        }
-
-        return rows;
-    }
-
-    loadMovMatCsv() {
-        return this.loadByPath(this.csvPath);
+        // La instancia ahora delega en DataProviderFactory para cargar datos
     }
 
     sumBy(rows, key, valueKey) {
@@ -131,12 +31,13 @@ class DataService {
             .slice(0, n);
     }
 
-    getInsights() {
+    async getInsights() {
         try {
-            const rows = this.loadMovMatCsv();
+            const provider = getDataProvider();
+            const rows = await provider.loadData();
 
-            // Preview se ve que SUMA_NETA está en COL_8
-            const SUM_KEY = "COL_8";
+            // Soportar tanto formato CSV (COL_8) como OData (SUMA_NETA)
+            const SUM_KEY = rows.length > 0 && typeof rows[0]["SUMA_NETA"] !== "undefined" ? "SUMA_NETA" : "COL_8";
 
             const topCentros = this.topN(this.sumBy(rows, "ID_CENTRO", SUM_KEY), 5);
             const topClases = this.topN(this.countBy(rows, "CLASE_MOVIMIENTO"), 5);
@@ -234,16 +135,17 @@ class DataService {
 
         if (!rows) {
             try {
-                console.log("DataService: Cache miss, loading local CSV...");
-                rows = this.loadMovMatCsv();
+                const provider = getDataProvider();
+                console.log("DataService: Cache miss, loading data from provider...");
+                rows = await provider.loadData();
                 if (rows && rows.length > 0) {
                     CacheService.set(CACHE_KEY, rows, 24 * 60 * 60 * 1000);
                 }
-            } catch (csvErr) {
-                console.warn("Local CSV load failed:", csvErr.message);
+            } catch (err) {
+                console.warn("Provider load failed:", err.message);
 
                 if (config.datasphere.exportUrl) {
-                    console.log("Fetching from Datasphere Export Service...");
+                    console.log("Fetching from Datasphere Export Service fallback...");
                     const ExportService = require("./ExportService");
                     const { parse } = require("csv-parse/sync");
                     const { normalizeHeader } = require("../utils/helpers");
@@ -260,7 +162,7 @@ class DataService {
                         CacheService.set(CACHE_KEY, rows, 10 * 60 * 1000); // 10 minutos para datos en vivo
                     }
                 } else {
-                    throw new Error("No hay datos en caché, el CSV local falló y no hay URL de exportación configurada.");
+                    throw new Error(`Data loading failed and no fallback export URL configured. Original error: ${err.message}`);
                 }
             }
         }
