@@ -42,10 +42,12 @@ El ciclo de vida de una consulta (Chat Flow) obedece un pipeline unidireccional 
 2.  **Enriquecimiento Rápido Provisional (NLDateService):** Una extracción heurística/regex en español revisa el texto en O(1) para pre-identificar rangos de fechas obvios y ayudar a aligerar la carga al modelo.
 3.  **Clasificación de Intención (IntentRouterService -> API Gemini):** Se envía el prompt taxonómico. Gemini retorna el mapa de la entidad/intentos vía JSON predecible.
 4.  **Evaluación de Disparos de Clarificación:** Si el sistema determina `needs_clarification`, la iteración aborta tempranamente devolviendo una respuesta prescriptiva a la UI.
-5.  **Data Fetch & Caching (DataService / CacheService):** Se carga el csv (o del buffer remoto en SAP Datasphere / NAS) y se retiene unificado en caché con vigencia temporal, reduciendo el FS throttling y optimizando la latencia.
+5.  **Estrategia Dinámica de Datos (QueryStrategyResolver):** Se evalúa la fuente configurada (`DATA_SOURCE`):
+    *   **Estrategia CSV/Memoria:** Se carga el csv (o del buffer remoto NAS) y se retiene unificado en caché vía `DataService / CacheService`, reduciendo el FS throttling.
+    *   **Estrategia ODATA:** En vez de retener en RAM, el `ChatController` intercepta la consulta, el `DatasphereQueryBuilder` mapea dinámicamente las *slots* extraídas a sentencias OData V4 (`$filter`, `$select`) y `ODataProvider` ejecuta la consulta precisa vía red contra SAP Datasphere, aplicando optimizaciones directas (`$count=true`) para conteos estadísticos.
 6.  **Cómputo Local Híbrido:**
-    *   *Si es un Query Simple:* El Payload ejecuta en memoria Node.js vía `QueryEngineService`. Resultados matemáticos devueltos directamente (Bypass de NLU final).
-    *   *Si es Analítico:* `InsightEngineService` precalcula la matemática gruesa. Inyecta este macro-resumen validado a `GeminiService` (2da Instancia NLU). Gemini redacta la elocuencia y conclusión narrativa en base al JSON.
+    *   *Si es un Query Simple y ya data fue resuelta (directamente vía OData Count o filtrando el Array):* El Payload finaliza ejecutando `QueryEngineService`. Resultados matemáticos devueltos directamente (Bypass de NLU final).
+    *   *Si es Analítico:* `InsightEngineService` precalcula la matemática gruesa sobre el array recuperado (desde caché o OData). Inyecta este macro-resumen validado a `GeminiService` (2da Instancia NLU). Gemini redacta la elocuencia y conclusión narrativa en base al JSON.
 7.  **Respuesta Formateada:** El controller construye la respuesta homogénea estructurada y despacha al cliente web.
 
 ## 6. Estrategia de Defaults Inteligentes (Dataset Profiles)

@@ -12,10 +12,12 @@ SAC Gemini Proxy es un middleware backend desarrollado en Node.js y Express que 
    - **Consultas Abiertas:** Si la intención es desconocida, un prompt restrictivo solicita contexto al usuario o le sugiere funcionalidades soportadas.
 4. **Respuesta:** El controlador empaqueta los resultados exactos o el texto redactado por la IA junto con los metadatos y evidencias (muestras de datos) hacia el cliente.
 
-## Motores del Sistema
+## Componentes del Sistema
 - **IntentRouterService:** Motor de NLP basado en LLM para la clasificación estricta de intenciones comerciales (14 casos de uso soportados) y Extracción de Entidades Nombradas (NER).
 - **QueryEngineService:** Motor de cálculo determinista. Realiza operaciones matemáticas exactas (recuentos, sumas, top N) filtrando los datos directamente en memoria, garantizando 0% de error en cálculos.
 - **InsightEngineService:** Motor analítico. Calcula variaciones porcentuales, diferencias de conjuntos y tendencias temporales (trimestrales/mensuales) mediante lógica algorítmica dura.
+- **DataProviderFactory:** Patrón factoría que orquesta dinámicamente el origen de los datos según la estrategia activa (`DATA_SOURCE`), administrando la carga ya sea vía **CsvProvider** (en memoria) o **ODataProvider** (consultas remotas dinámicas y paginadas).
+- **QueryStrategyResolver & DatasphereQueryBuilder:** Resuelven si la consulta se procesará en caliente contra SAP Datasphere construyendo strings OData V4 dinámicos (`$filter`, `$select`, `$count`), optimizando payload y latencia.
 - **GeminiService:** Proxies de comunicación directa con las APIs de Google Gemini, utilizando modelos como `gemini-2.5-flash` para tareas de NLP puro y NLG (Natural Language Generation) a partir de JSONs estructurados.
 
 ## Variables de Entorno
@@ -31,10 +33,16 @@ GEMINI_MODEL=gemini-2.5-flash
 # Orígenes CORS permitidos separados por comas. Usar para desarrollo y producción
 ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000,https://tu-dominio.com
 
-# Credenciales y endpoints de SAP Datasphere (Operaciones de exportación y proxy)
+# Credenciales y endpoints de SAP Datasphere (Operaciones de exportación, proxy y consultas dinámicas OData)
 DATASPHERE_USER=usuario@dominio.com
 DATASPHERE_PASS=ContraseñaSegura123
 DATASPHERE_ODATA_URL=https://dominio.hcs.cloud.sap/api/v1/datasphere/...
+
+# Configuración del Proveedor de Datos (Opcional)
+# Especifica "ODATA" para conectar dinámicamente a Datasphere, omitir para CSV in-memory por defecto.
+DATA_SOURCE=ODATA
+# Tamaño de paginación para extracción masiva OData (Defecto 1000)
+ODATA_PAGE_SIZE=1000
 ```
 
 ## Ejecución Local
