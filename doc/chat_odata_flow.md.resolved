@@ -1,0 +1,95 @@
+# Flujo del Chat con SAP Datasphere (OData)
+
+El proceso completo de cómo el chat de tu aplicación responde ahora a una consulta extrayendo los datos desde SAP Datasphere a través de OData.
+
+## Mapa de Proceso (Diagrama de Secuencia)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Cliente
+    participant ChatController as ChatController
+    participant DataService as DataService
+    participant Factory as DataProviderFactory
+    participant ODataProvider as ODataProvider
+    participant OAuthService as OAuthService
+    participant SAP as SAP Datasphere / UAA
+    participant Router as IntentRouter
+    participant QueryEngine as QueryEngine / InsightEngine
+
+    Cliente->>ChatController: POST /api/chat (message)
+    ChatController->>DataService: getRowsCached()
+    
+    alt Cache Miss (No hay datos en memoria)
+        DataService->>Factory: getDataProvider()
+        Factory-->>DataService: return ODataProvider (Por variable ENV)
+        
+        DataService->>ODataProvider: loadData()
+        
+        loop Paginación (hasta traer todos)
+            ODataProvider->>OAuthService: getAccessToken()
+            
+            alt Token Expirado/No existe
+                OAuthService->>SAP: Petición Token (Client Credentials)
+                SAP-->>OAuthService: JWT Token
+            end
+            
+            OAuthService-->>ODataProvider: Token Válido
+            
+            ODataProvider->>SAP: fetch(ODATA_URL?$top=1000&$skip=X) + Bearer Token
+            SAP-->>ODataProvider: JSON (Records OData)
+            ODataProvider->>ODataProvider: normalizeHeaders()
+        end
+        
+        ODataProvider-->>DataService: Array completo normalizado
+        DataService->>DataService: Guardar en Cache
+    end
+
+    DataService-->>ChatController: rows (Array de datos)
+
+    ChatController->>Router: route(message, rows)
+    Router-->>ChatController: intent detectado (ej: sum_suma_neta_by_group_and_date)
+
+    alt Intent = Consulta Exacta (QueryEngine)
+        ChatController->>QueryEngine: count/sum(rows, slots)
+        QueryEngine-->>ChatController: resultado matemáticamente exacto
+    else Intent = Insight / AI (InsightEngine + Gemini)
+        ChatController->>QueryEngine: extraer insights(rows, slots)
+        QueryEngine-->>ChatController: datos crudos del insight
+        ChatController->>SAP: (Gemini API) redactar resumen final
+    end
+
+    ChatController-->>Cliente: JSON { reply, meta, data }
+```
+
+## Clases y Métodos Involucrados
+
+### 1. [ChatController](file:///c:/Sistemas/sac-gemini-proxy/src/controllers/ChatController.js#5-379) ([src/controllers/ChatController.js](file:///c:/Sistemas/sac-gemini-proxy/src/controllers/ChatController.js))
+* **[handleChat(req, res)](file:///c:/Sistemas/sac-gemini-proxy/src/controllers/ChatController.js#6-359):** Es el punto de entrada principal para responder a la solicitud del usuario en el bot. Llama a `DataService.getRowsCached()`.
+
+### 2. [DataService](file:///c:/Sistemas/sac-gemini-proxy/src/services/DataService.js#6-181) ([src/services/DataService.js](file:///c:/Sistemas/sac-gemini-proxy/src/services/DataService.js))
+* **[getRowsCached()](file:///c:/Sistemas/sac-gemini-proxy/src/services/DataService.js#126-171):** Revisa si los datos (todo el set de datos ya extraído desde el origen) se encuentran en la memoria caché (clase `CacheService`). Si el caché no los tiene (por tiempo o porque el server se acaba de reiniciar), invoca al patrón Factory para saber desde dónde descargarlos, delega esta tarea, recibe el `Array` en memoria y, tras confirmarlo válido, lo sube de nuevo a caché por 24 horas y lo entrega al Controlador.
+
+### 3. `DataProviderFactory` ([src/providers/DataProviderFactory.js](file:///c:/Sistemas/sac-gemini-proxy/src/providers/DataProviderFactory.js))
+* **[getDataProvider()](file:///c:/Sistemas/sac-gemini-proxy/src/providers/DataProviderFactory.js#4-12):** Su función es abstraer desde dónde vendrán los datos. Lee la variable de entorno `DATA_SOURCE`. Si el valor es exacto a `"ODATA"`, el método retorna el puntero de la clase [ODataProvider](file:///c:/Sistemas/sac-gemini-proxy/src/providers/ODataProvider.js#5-115). De no ser así o estar ausente la variable, asume por defecto devolver un objeto [CsvProvider](file:///c:/Sistemas/sac-gemini-proxy/src/providers/CsvProvider.js#7-108).
+
+### 4. [ODataProvider](file:///c:/Sistemas/sac-gemini-proxy/src/providers/ODataProvider.js#5-115) ([src/providers/ODataProvider.js](file:///c:/Sistemas/sac-gemini-proxy/src/providers/ODataProvider.js)) (Recién creado)
+* **[loadData() / fetchAllMovMatData()](file:///c:/Sistemas/sac-gemini-proxy/src/providers/ODataProvider.js#107-114):** Orquesta la extracción iterativa de datos OData desde Datasphere. 
+  - Define `pageSize` (proveniente de la variable de entorno `ODATA_PAGE_SIZE`, que por defecto asume `1000`).
+  - Inicia un bucle secuencial que insertará a las querystrings la lógica (`$top` y `$skip`) iterando `skip += pageSize` siempre que lo que retorna SAP tenga la longitud correspondiente al tamaño del bloque.
+  - Finaliza el loop cuando DataSphere envíe un arreglo con menos registros que el tamaño de la página, señalando el fin de los datos.
+* **[normalizeRecord(record)](file:///c:/Sistemas/sac-gemini-proxy/src/providers/ODataProvider.js#10-29):** Transforma las keys que devuelve la respuesta de formato JSON OData directamente al formato exacto y limpio pre-existente que era provisto por el archivo plano (`ID_CENTRO`, `FECHA`, `SUMA_NETA`, etc) quitándoles metadatos intrusos aportados por SAP (ej: `__metadata`) y estandarizando caracteres. Así la app nunca nota un cambio en la estructura de los datos.
+
+### 5. `OAuthService` ([src/services/OAuthService.js](file:///c:/Sistemas/sac-gemini-proxy/src/services/OAuthService.js))
+* **`getAccessToken()`:** Es consumido por el proveedor OData **en cada llamada de página de la iteración** dentro del proveedor. Este servicio evalúa internamente (mediante variables privadas `cachedToken` y `tokenExpiresAt`) si su Bearer token OAuth sigue activo y vigente.
+* De haber expirado (o al arranque, cuando no hay nada), el MS subyacente dispara vía endpoint un POST de solicitud usando esquema estandar OAuth 2.0 (Client Credentials) pasando el `client_id` y `client_secret` a la *SAP UAA url*. Una vez emitido el nuevo JWT de autorización, se almacena como la nueva caché local antes de inyectarse en los Request Headers de Datasphere.
+
+### 6. Motores ([QueryEngineService](file:///c:/Sistemas/sac-gemini-proxy/src/services/QueryEngineService.js#4-296) y Motores de Intención) (`src/services/...`)
+* Al completar todo el flujo del `request`, el array local in-memory de elementos (`rows`) es consumido por las funciones sincrónicas del resto del proyecto. En todos estos casos, estas clases, a través de variables como `sumSumaNetaByGroupAndDate(...)`, se limitan a consumir ese objeto masivo mediante filtros `reduce()` y `filter()` convencionales de JS, agrupaciones de mapa, sets para los identificadores o proveyendo el insumo crudo para ser adjuntado como contexto estricto si se remite a `GeminiService`.
+
+---
+
+### Lo que hace que esto funcione sin romper lo anterior (CSV)
+La principal diferencia y la gran ventaja de la arquitectura del **Patrón Factory** en conjunto de interfaces unificadas como `loadData()`, es que los componentes vitales del negocio (el Chat en sí mismo, los Motores Matemáticos Críticos, El Sistema Router y los Tests) ahora desconocen totalmente el origen del que se consumen estos datos asertivos. Ellos simplemente ven un array `[]` de objetos en entorno JS, listo para consultar.
+
+El intercambio ocurre silenciosamente al inicio del flujo: Mientras antes levantaba del disco duro el string masivo CSV y rebanaba los strings para crear el Array en memoria. Ahora es el **ODataProvider** quien invoca el flujo de red hacia la pasarela DataSphere de forma paginada para inyectarlo en el mismito molde de memoria compartida, habilitando su análisis global en tiempo real.

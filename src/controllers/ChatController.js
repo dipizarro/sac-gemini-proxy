@@ -12,11 +12,17 @@ class ChatController {
 
             const IntentRouterService = require("../services/IntentRouterService");
             const QueryEngineService = require("../services/QueryEngineService");
+            const QueryStrategyResolver = require("../services/QueryStrategyResolver");
 
-            // 1. Obtener datos cacheados
-            const rows = await DataService.getRowsCached();
+            // 1. Determinar estrategia y origen de datos
+            const strategy = QueryStrategyResolver.resolveStrategy();
+            let rows = [];
 
-            // 2. Extraer intención usando Router (ahora con contexto del dataset para defaults)
+            if (strategy === "CSV") {
+                rows = await DataService.getRowsCached();
+            }
+
+            // 2. Extraer intención usando Router (en modo ODATA pasamos array vacío)
             const route = await IntentRouterService.route(message, rows);
             console.log("IntentRouter Result:", route);
             // 3. Si falta información crucial, preguntar al usuario
@@ -29,6 +35,18 @@ class ChatController {
                         needs_clarification: true
                     }
                 });
+            }
+
+            // 3.5. Si la estrategia es ODATA, resolvemos los rows dinámicamente con QueryBuilder
+            if (strategy === "ODATA" && !route.needs_clarification) {
+                const DatasphereQueryBuilder = require("../services/DatasphereQueryBuilder");
+                const ODataProvider = require("../providers/ODataProvider");
+
+                const filter = DatasphereQueryBuilder.buildFilterFromSlots(route.slots);
+                const select = DatasphereQueryBuilder.buildSelectForIntent(route.intent);
+                const isSimpleCount = route.intent === "count_movements_by_date" || route.intent === "COUNT_MOVEMENTS_DATE";
+
+                rows = await ODataProvider.executeFilteredQuery({ filter, select, count: isSimpleCount });
             }
 
             // 4. Si es una consulta exacta soportada, usar Query Engine
@@ -50,7 +68,18 @@ class ChatController {
 
             if (route.intent === "count_movements_by_date") {
                 const dateKey = route.slots.date;
-                const result = QueryEngineService.countMovementsByDate(rows, dateKey);
+                let result;
+
+                // Si rows es un número continuo directamente gracias al '$count' directo de OData
+                if (typeof rows === 'number') {
+                    result = {
+                        date: dateKey,
+                        movements: rows,
+                        evidence: {}
+                    };
+                } else {
+                    result = QueryEngineService.countMovementsByDate(rows, dateKey);
+                }
 
                 return res.json({
                     reply: `El ${result.date}, se registraron ${result.movements} movimientos.`,
