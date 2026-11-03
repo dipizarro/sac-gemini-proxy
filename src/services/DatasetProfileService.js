@@ -22,7 +22,7 @@ class DatasetProfileService {
 
         // 1. Intentar cargar desde caché
         const cached = CacheService.get(PROFILE_CACHE_KEY);
-        if (cached) {
+        if (cached && this.profileRows === rows) {
             return cached;
         }
 
@@ -73,13 +73,18 @@ class DatasetProfileService {
         };
 
         // Cachear resultado por 24 horas
-        CacheService.set(PROFILE_CACHE_KEY, profile, 24 * 60 * 60 * 1000);
+        // Un snapshot ajeno o anterior no puede reemplazar el perfil vigente.
+        if (CacheService.get("MOVMAT_DATA") === rows) {
+            this.profileRows = rows;
+            CacheService.set(PROFILE_CACHE_KEY, profile, 24 * 60 * 60 * 1000);
+        }
 
         return profile;
     }
 
     clearProfileCache() {
         CacheService.del(PROFILE_CACHE_KEY);
+        this.profileRows = null;
     }
 }
 

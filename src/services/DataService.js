@@ -5,7 +5,8 @@ const { getDataProvider } = require("../providers/DataProviderFactory");
 
 class DataService {
     constructor() {
-        // La instancia ahora delega en DataProviderFactory para cargar datos
+        this.pendingLoad = null;
+        this.cacheGeneration = 0;
     }
 
     sumBy(rows, key, valueKey) {
@@ -123,59 +124,76 @@ class DataService {
             throw new Error(`Failed to fetch MovMat data: ${error.message}`);
         }
     }
-    /**
-     * Obtiene filas de la caché o las carga desde el CSV.
-     * @returns {Array} rows
-     */
+    /** Devuelve el snapshot vigente o comparte la carga en curso. */
     async getRowsCached() {
         const CacheService = require("./CacheService");
-        const config = require("../config/config");
-        const CACHE_KEY = "MOVMAT_DATA";
-        let rows = CacheService.get(CACHE_KEY);
+        const rows = CacheService.get("MOVMAT_DATA");
+        if (rows !== null) return rows;
+        return this._loadAndPublish(true);
+    }
 
-        if (!rows) {
-            try {
-                const provider = getDataProvider();
-                console.log("DataService: Cache miss, loading data from provider...");
-                rows = await provider.loadData();
-                if (rows && rows.length > 0) {
-                    CacheService.set(CACHE_KEY, rows, 24 * 60 * 60 * 1000);
-                }
-            } catch (err) {
-                console.warn("Provider load failed:", err.message);
-
-                if (config.datasphere.exportUrl) {
-                    console.log("Fetching from Datasphere Export Service fallback...");
-                    const ExportService = require("./ExportService");
-                    const { parse } = require("csv-parse/sync");
-                    const { normalizeHeader } = require("../utils/helpers");
-
-                    const resourcePath = config.datasphere.movMatPath;
-                    const buffer = await ExportService.exportToCsvBuffer({ resourcePath });
-                    rows = parse(buffer, {
-                        columns: (header) => header.map(normalizeHeader),
-                        skip_empty_lines: true,
-                        trim: true,
-                        relax_quotes: true
-                    });
-                    if (rows && rows.length > 0) {
-                        CacheService.set(CACHE_KEY, rows, 10 * 60 * 1000); // 10 minutos para datos en vivo
-                    }
-                } else {
-                    throw new Error(`Data loading failed and no fallback export URL configured. Original error: ${err.message}`);
-                }
-            }
+    /** Recarga explícita: un error del provider no se oculta con otra fuente. */
+    async reloadRows() {
+        // Esperar cargas anteriores para que una recarga explícita siempre consulte
+        // el provider y nunca publique resultados fuera de orden.
+        while (this.pendingLoad) {
+            try { await this.pendingLoad; } catch (_) { /* La recarga reintenta. */ }
         }
-        return rows || [];
+        return this._loadAndPublish(false);
+    }
+
+    _loadAndPublish(allowFallback) {
+        if (this.pendingLoad) return this.pendingLoad;
+        const generation = this.cacheGeneration;
+        const pending = this._loadRows(allowFallback).then(({ rows, ttl }) => {
+            if (!Array.isArray(rows) || rows.some(row => !row || typeof row !== "object" || Array.isArray(row))) {
+                throw new Error("Data provider must return an array of records");
+            }
+            // clearCache puede haber invalidado esta carga mientras esperaba I/O.
+            if (generation === this.cacheGeneration) {
+                const CacheService = require("./CacheService");
+                this._invalidateDerivedCaches();
+                CacheService.set("MOVMAT_DATA", rows, ttl);
+            }
+            return rows;
+        }).finally(() => {
+            if (this.pendingLoad === pending) this.pendingLoad = null;
+        });
+        this.pendingLoad = pending;
+        return pending;
+    }
+
+    async _loadRows(allowFallback) {
+        try {
+            return { rows: await getDataProvider().loadData(), ttl: 24 * 60 * 60 * 1000 };
+        } catch (err) {
+            if (!allowFallback || !config.datasphere.exportUrl) throw err;
+            const ExportService = require("./ExportService");
+            const { parse } = require("csv-parse/sync");
+            const { normalizeHeader } = require("../utils/helpers");
+            const buffer = await ExportService.exportToCsvBuffer({ resourcePath: config.datasphere.movMatPath });
+            return {
+                rows: parse(buffer, {
+                    columns: header => header.map(normalizeHeader),
+                    skip_empty_lines: true,
+                    trim: true,
+                    relax_quotes: true
+                }),
+                ttl: 10 * 60 * 1000
+            };
+        }
+    }
+
+    _invalidateDerivedCaches() {
+        require("./QueryService").invalidateIndex();
+        require("./DatasetProfileService").clearProfileCache();
     }
 
     clearCache() {
-        const CacheService = require("./CacheService");
-        CacheService.del("MOVMAT_DATA");
-        // Limpiar elementos dependientes como el perfil del dataset
-        const DatasetProfileService = require("./DatasetProfileService");
-        DatasetProfileService.clearProfileCache();
-        console.log("DataService: All local caches cleared.");
+        this.cacheGeneration++;
+        this.pendingLoad = null;
+        require("./CacheService").del("MOVMAT_DATA");
+        this._invalidateDerivedCaches();
     }
 }
 

@@ -11,21 +11,17 @@ class QueryService {
     /**
      * Obtiene o crea el índice desde la caché o fuente de datos.
      */
-    _getIndex() {
+    async _getIndex() {
+        // Comprobar primero el dataset: su TTL puede vencer antes que el índice.
+        const rows = await DataService.getRowsCached();
         let index = CacheService.get(this.INDEX_CACHE_KEY);
-        if (!index) {
-            console.log("QueryService: Index missing, rebuilding...");
-            // Cargar datos completos
-            // Asumimos que DataService tiene la lógica de la fuente de verdad (cargar del fs)
-            // Pero idealmente lo obtenemos primero de CacheService("MOVMAT_DATA")
-            let rows = CacheService.get("MOVMAT_DATA");
-            if (!rows) {
-                rows = DataService.loadMovMatCsv();
-                CacheService.set("MOVMAT_DATA", rows, 24 * 60 * 60 * 1000);
-            }
-
+        if (!index || this.indexRows !== rows) {
             index = IndexService.buildIndexes(rows);
-            CacheService.set(this.INDEX_CACHE_KEY, index, 24 * 60 * 60 * 1000); // 24 horas
+            // Un lector de un snapshot anterior puede finalizar tras una recarga.
+            if (CacheService.get("MOVMAT_DATA") === rows) {
+                this.indexRows = rows;
+                CacheService.set(this.INDEX_CACHE_KEY, index, 24 * 60 * 60 * 1000);
+            }
         }
         return index;
     }
@@ -34,8 +30,8 @@ class QueryService {
      * Cuenta los centros distintos para una fecha específica.
      * @param {string} dateKey - YYYY-MM-DD
      */
-    countDistinctCentersByDate(dateKey) {
-        const index = this._getIndex();
+    async countDistinctCentersByDate(dateKey) {
+        const index = await this._getIndex();
         const centersSet = index.centersByDate.get(dateKey);
 
         if (!centersSet) {
@@ -61,6 +57,7 @@ class QueryService {
      */
     invalidateIndex() {
         CacheService.del(this.INDEX_CACHE_KEY);
+        this.indexRows = null;
     }
 }
 

@@ -6,7 +6,7 @@ class CsvController {
 
     async getStatus(req, res, next) {
         try {
-            const csvPath = DataService.csvPath;
+            const csvPath = require("../providers/CsvProvider").csvPath;
             let fileStats = null;
 
             if (fs.existsSync(csvPath)) {
@@ -39,16 +39,7 @@ class CsvController {
 
     async reload(req, res, next) {
         try {
-            console.log("Reloading CSV from disk...");
-            // Force load from disk
-            const rows = DataService.loadMovMatCsv();
-
-            // Update Cache (store indefinitely or long TTL, e.g. 24h)
-            CacheService.set("MOVMAT_DATA", rows, 24 * 60 * 60 * 1000);
-
-            // Invalidate Indexes
-            const QueryService = require("../services/QueryService");
-            QueryService.invalidateIndex();
+            const rows = await DataService.reloadRows();
 
             res.json({
                 ok: true,
@@ -62,22 +53,13 @@ class CsvController {
 
     async getSummary(req, res, next) {
         try {
-            let rows = CacheService.get("MOVMAT_DATA");
-
-            if (!rows) {
-                // Auto-load if not in cache
-                console.log("CSV not in cache, loading...");
-                rows = DataService.loadMovMatCsv();
-                CacheService.set("MOVMAT_DATA", rows, 24 * 60 * 60 * 1000);
-            }
-
-            // Calculations
-            // Asumimos COL_8 es métrica (suma neta) si existe, o usamos conteo
-            const numericCol = "COL_8";
-
-            // Top 5 Centros
-            const sumByCentro = DataService.sumBy(rows, "ID_CENTRO", numericCol);
-            const topCentros = DataService.topN(sumByCentro, 5);
+            const rows = await DataService.getRowsCached();
+            const columns = Object.keys(rows[0] || {});
+            const numericCol = columns.includes("SUMA_NETA") ? "SUMA_NETA"
+                : columns.includes("COL_8") ? "COL_8" : null;
+            const topCentros = numericCol
+                ? DataService.topN(DataService.sumBy(rows, "ID_CENTRO", numericCol), 5)
+                : [];
 
             // Top 5 Movimientos
             const countByClase = DataService.countBy(rows, "CLASE_MOVIMIENTO");
@@ -105,7 +87,7 @@ class CsvController {
 
             console.log("Profiling: Loading CSV...");
             // Force load to measure raw speed
-            const rows = DataService.loadMovMatCsv();
+            const rows = await DataService.reloadRows();
 
             const t1 = profile.nowMs();
             const mem1 = profile.memMb();
@@ -148,7 +130,7 @@ class CsvController {
             if (!date) return res.status(400).json({ error: "Missing date param (YYYY-MM-DD)" });
 
             const QueryService = require("../services/QueryService");
-            const result = QueryService.countDistinctCentersByDate(date);
+            const result = await QueryService.countDistinctCentersByDate(date);
 
             res.json({ ok: true, ...result });
         } catch (error) {
@@ -160,7 +142,7 @@ class CsvController {
 
     async getCsvPreview(req, res, next) {
         try {
-            const rows = DataService.loadMovMatCsv();
+            const rows = await DataService.reloadRows();
             res.json({ count: rows.length, sample: rows.slice(0, 5) });
         } catch (err) {
             next(err);
