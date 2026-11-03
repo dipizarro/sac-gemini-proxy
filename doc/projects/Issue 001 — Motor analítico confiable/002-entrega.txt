@@ -1,0 +1,142 @@
+El Issue 001 tiene defectos reproducibles de carga, conversión numérica y coherencia de caché. Las 39 pruebas actuales pasan, pero no cubren esos defectos. No modifiqué código ni configuración; el estado final de Git coincide con el inicial (doc/prompt-library/ ya estaba sin seguimiento).
+
+Diagnóstico sustentado
+1. Migración incompleta hacia providers.
+   [DataService.js (line 130)](/C:/Sistemas/sac-gemini-proxy/src/services/DataService.js:130) implementa getRowsCached() asíncrono:
+   - Consulta MOVMAT_DATA.
+   - Selecciona provider mediante DataProviderFactory.
+   - Ejecuta await provider.loadData().
+   - Guarda filas no vacías durante 24 horas.
+   - Si falla y existe configuración de exportación, usa ExportService, con caché de 10 minutos.
+   DataService ya no define loadMovMatCsv() ni csvPath, pero quedan estas referencias:
+   Consumidor	Línea	Consecuencia reproducida
+   CsvController.reload	44	TypeError
+   CsvController.getSummary	70	TypeError con caché fría
+   CsvController.getProfile	108	TypeError
+   CsvController.getCsvPreview	163	TypeError
+   QueryService._getIndex	23	TypeError sin datos ni índice en caché
+   CsvController.getStatus	9	Informa exists:false y omite path, aunque el CSV existe
+   
+   
+   Referencias: [CsvController.js (line 40)](/C:/Sistemas/sac-gemini-proxy/src/controllers/CsvController.js:40), [QueryService.js (line 14)](/C:/Sistemas/sac-gemini-proxy/src/services/QueryService.js:14).
+   Reproduje los errores invocando los handlers con req, res y next controlados; no fueron pruebas HTTP.
+2. El provider CSV sí carga el archivo local.
+   Ejecuté [CsvProvider.loadData():12 (line 12)](/C:/Sistemas/sac-gemini-proxy/src/providers/CsvProvider.js:12): obtuvo 32.203 filas, detectó encabezado doble y produjo SUMA_NETA, no COL_8.
+   El flujo busca una línea que contenga MATERIAL1, combina encabezados, normaliza columnas y parsea con delimitador coma. No convierte las métricas a números.
+   Problema adicional reproducido: getSummary() fija numericCol = "COL_8" en [CsvController.js (line 76)](/C:/Sistemas/sac-gemini-proxy/src/controllers/CsvController.js:76). Con una fila {ID_CENTRO:"A", SUMA_NETA:"25"}, responde una suma de 0.
+3. Conversión numérica incorrecta.
+   En [helpers.js (line 20)](/C:/Sistemas/sac-gemini-proxy/src/utils/helpers.js:20), la primera condición captura todas las cadenas con coma y ningún punto. Por eso la rama destinada a distinguir coma decimal, líneas 33–42, es inalcanzable.
+   Resultados ejecutados:
+   Entrada	Resultado actual	Evaluación
+   "1,50"	150	Incorrecto para coma decimal
+   "-1,50"	-150	Mismo defecto con negativos
+   "1.50"	1.5	Correcto
+   "1,234.56" / "1.234,56"	1234.56	Correcto
+   "1,907,753" / "1.907.753"	1907753	Correcto
+   "1,907" / "1.907"	1907 / 1.907	Ambigüedad de formato
+   null, undefined, "", espacios	0	Política actual
+   "123abc"	123	Aceptación parcial por parseFloat
+   "1 234,56"	1	Separador de miles no soportado
+   "123-" / "(123)"	123 / 0	Negativos alternativos no soportados
+   -123.45 numérico	-123.45	Correcto
+   
+   
+   En el CSV local, 32.132 métricas contienen solo comas y 193 empiezan con signo negativo. Esto no demuestra que esas comas sean decimales: no corresponde reinterpretarlas sin acordar el contrato del exportador.
+   El helper afecta:
+   - [DataService.sumBy():11 (line 11)](/C:/Sistemas/sac-gemini-proxy/src/services/DataService.js:11).
+   - [QueryEngineService:94 (line 94)](/C:/Sistemas/sac-gemini-proxy/src/services/QueryEngineService.js:94).
+   - [InsightEngineService:326 (line 326)](/C:/Sistemas/sac-gemini-proxy/src/services/InsightEngineService.js:326), también volumen en línea 508.
+   - [SummaryService:31 (line 31)](/C:/Sistemas/sac-gemini-proxy/src/services/SummaryService.js:31).
+   Además, SummaryService incluye nulos convertidos a cero en promedio, percentiles y mínimo. Es comportamiento comprobable del código; decidir si es incorrecto requiere definir la semántica de nulos.
+4. Invalidación incompleta de derivados.
+   [DataService.clearCache():172 (line 172)](/C:/Sistemas/sac-gemini-proxy/src/services/DataService.js:172) elimina datos y perfil, pero no MOVMAT_INDEX_V1.
+   Reproducción: construí un índice con centro A, limpié la caché y cargué filas con centros B y C. La consulta siguió devolviendo A y un centro, en vez de dos.
+   En sentido inverso, reload() invalida el índice, pero no el perfil temporal. Al reparar la carga, podría conservar años y fechas anteriores: [DatasetProfileService.js (line 23)](/C:/Sistemas/sac-gemini-proxy/src/services/DatasetProfileService.js:23).
+Cobertura y entorno de Jest
+
+Ejecutado con Node 22.14.0, npm 11.2.0, Jest 30.2.0 y Express 5.2.1:
+- 3 suites, 39 pruebas: todas pasan, tanto en ejecución normal como serial con cobertura.
+- Cobertura de src/**/*.js: 32,57 % de sentencias, 31,73 % de ramas, 32,18 % de líneas. Incluye los scripts manuales de src; excluye server.js.
+- Providers, controllers, DataService, QueryService, caché y perfil: 0 %.
+- helpers.js: 41,66 % de líneas, sin cubrir las ramas relevantes de formatos regionales.
+- Las fixtures analíticas usan principalmente cadenas enteras.
+- [IntentRouterService.test.js (line 7)](/C:/Sistemas/sac-gemini-proxy/tests/IntentRouterService.test.js:7) simula Gemini y el perfil. El mensaje API Error es deliberado, generado por la prueba de recuperación en línea 282; no significa que la suite falle.
+- Los scripts src/test-*.js no forman parte de las tres suites descubiertas.
+
+Sí reproduje un problema de invocación: al pasar flags mediante npm test -- ... en este entorno, npm los interpretó como configuración y no los trasladó a Jest. Ejecutar directamente el binario de Jest resolvió la medición. No reproduje fallos por dependencias ausentes, workers o credenciales; no hay evidencia para atribuirles una causa.
+
+Dependencias y alcance de endpoints
+
+Las rutas están en [routes/index.js (line 23)](/C:/Sistemas/sac-gemini-proxy/src/routes/index.js:23):
+- /csv/status, /reload, /summary, /profile, /preview: afectados directamente por la migración incompleta.
+- /csv/query/distinct-centers: depende de QueryService → IndexService, con fallo en frío e índice potencialmente obsoleto.
+- Los demás /csv/query/* y /csv/insights/*: ya esperan getRowsCached(), pero heredan problemas numéricos y de datos.
+- /chat: en estrategia CSV usa esa misma carga; en OData ejecuta consultas filtradas directamente, según [ChatController.js (line 18)](/C:/Sistemas/sac-gemini-proxy/src/controllers/ChatController.js:18). Ambos caminos comparten motores analíticos.
+- /ds/export/preview tiene un parseo independiente; no conviene refactorizarlo incidentalmente.
+
+Riesgos observados en código, sin incidente real reproducido:
+- relax_column_count:true puede aceptar filas desalineadas y descartar campos adicionales.
+- El fallback de exportación no utiliza la lógica de doble encabezado del provider.
+- DataProviderFactory exige "ODATA" exacto, mientras QueryStrategyResolver convierte a mayúsculas.
+- [ODataProvider.executeFilteredQuery():127 (line 127)](/C:/Sistemas/sac-gemini-proxy/src/providers/ODataProvider.js:127) no pagina: podría calcular agregados sobre resultados parciales. No consulté Datasphere ni comprobé truncamiento real.
+- Cargas concurrentes y renovación por TTL podrían desincronizar datos y derivados.
+
+Plan mínimo propuesto
+1. Fijar contratos y añadir pruebas de regresión. Definir formatos numéricos admitidos, tratamiento de valores inválidos/nulos y semántica de /csv/* cuando DATA_SOURCE=ODATA.
+2. Completar la migración asíncrona. Sustituir las cinco llamadas obsoletas por carga delegada; propagar await en QueryService y su controller. Mantener una operación explícita de carga forzada para reload/profile y obtener la ruta desde su propietario real.
+3. Centralizar la publicación e invalidación del dataset. Al reemplazar filas, invalidar índice y perfil juntos; si la recarga falla, conservar el último estado válido y devolver error. Contemplar también renovación por TTL.
+4. Corregir toNumberSmart con un contrato probado. Resolver coma decimal antes de eliminar miles, validar la cadena completa y preservar números nativos. No interpretar automáticamente toda cadena de tres decimales como miles.
+5. Corregir la métrica del resumen. Preferir SUMA_NETA, conservar fallback COL_8 y definir respuesta explícita si ambas faltan.
+6. Verificar integración y regresión. Providers simulados, caché fría/caliente, recarga y handlers; smoke HTTP local con Express existente, sin dependencias nuevas.
+
+No propongo migrar módulos, cambiar Express ni reorganizar la arquitectura. La paginación OData merece un seguimiento separado si el Issue 001 se limita a estos defectos.
+
+Pruebas que deben quedar rojas antes y verdes después
+Prueba nueva	Situación actual	Resultado requerido
+Coma decimal positiva y negativa	150 / -150	1.5 / -1.5
+Cinco consumidores de carga con datos controlados	TypeError	Respuesta válida, carga esperada
+Estado con archivo existente	exists:false	Ruta y existencia correctas
+Resumen con solo SUMA_NETA:"25"	0	25
+Reemplazo A → B,C tras invalidación	Índice A	Dos centros, B y C
+Recarga de otro período	Perfil no invalidado en código	Nuevo rango temporal
+Cadena "123abc"	Acepta 123	Rechazo conforme al contrato acordado
+
+
+Las últimas dos aún requieren formalizarse como pruebas; no afirmo haberlas ejecutado en Jest.
+
+Añadir también controles que ya deberían pasar: formatos mixtos válidos, miles múltiples, números nativos, cero, CSV de encabezado simple/doble, caché caliente, fallback simulado y propagación de errores. Las fixtures deben estar embebidas o en un formato versionable: .gitignore excluye *.csv.
+
+Riesgos y criterios de aceptación
+
+El mayor riesgo es cambiar la interpretación de datos históricos ambiguos. También pueden cambiar rankings, promedios y respuestas de chat al corregir sumas. La propagación de async debe completarse hasta los handlers para no devolver promesas o resultados vacíos.
+
+Aceptar el Issue cuando:
+- No queden llamadas a métodos inexistentes.
+- Carga fría, caliente y recarga funcionen con contratos de respuesta compatibles.
+- Datos, índice y perfil correspondan al mismo dataset.
+- La matriz numérica acordada pase y los agregados coincidan con fixtures calculadas manualmente.
+- Las 39 pruebas existentes y las nuevas pasen sin acceso a Gemini/Datasphere.
+- No haya dependencias nuevas ni cambios ajenos al alcance.
+Comandos de verificación
+
+Desde C:\Sistemas\sac-gemini-proxy, en PowerShell:
+node --version
+npm --version
+npm ls --depth=0
+
+node node_modules/jest/bin/jest.js --runInBand --cache=false
+
+node node_modules/jest/bin/jest.js --runInBand --cache=false --coverage --coverageReporters=text "--collectCoverageFrom=src/**/*.js"
+
+rg -n 'loadMovMatCsv|DataService\.csvPath' src
+rg -n 'toNumberSmart|MOVMAT_DATA|MOVMAT_INDEX_V1|MOVMAT_PROFILE_V1' src tests
+
+node -e 'const {toNumberSmart:f}=require("./src/utils/helpers"); for(const x of ["1,50","-1,50","1.50","1,234.56","1.234,56",null,"123abc"]) console.log(x,f(x));'
+
+node -e 'require("./src/providers/CsvProvider").loadData().then(r=>console.log({rows:r.length,columns:Object.keys(r[0]||{})})).catch(e=>{console.error(e.message);process.exitCode=1;});'
+
+git diff --stat
+git status --short
+
+
+Quedo a la espera de tu aprobación antes de implementar este plan.

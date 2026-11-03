@@ -1,0 +1,22 @@
+Actúa como un Senior Software Engineer especializado en Node.js, integración de datos y SAP Datasphere.
+
+Proyecto: sac-gemini-proxy.
+Objetivo: planificar el Issue 001 — Integridad y confiabilidad del motor analítico.
+
+Analiza el repositorio real y verifica:
+1. El ciclo de carga CSV y las referencias a DataService.loadMovMatCsv().
+2. El manejo de números con coma y punto decimal, separadores de miles, negativos y valores nulos.
+3. La cobertura actual de Jest y las causas de fallos del entorno de pruebas.
+4. Las dependencias entre providers, servicios, controllers y endpoints afectados.
+
+No modifiques archivos todavía.
+
+Entrega:
+- Diagnóstico sustentado con rutas, funciones y líneas relevantes.
+- Problemas reproducidos versus problemas hipotéticos.
+- Plan mínimo de cambios, dividido en pasos pequeños.
+- Pruebas que deberán fallar antes de la corrección y pasar después.
+- Riesgos de regresión y criterios de aceptación.
+- Comandos para ejecutar las verificaciones.
+
+Restricciones: conserva CommonJS, Express 5 y la arquitectura existente salvo justificación explícita. No agregues dependencias ni refactorices componentes ajenos al Issue. No afirmes que una prueba pasó sin ejecutarla. Espera mi aprobación antes de implementar.
