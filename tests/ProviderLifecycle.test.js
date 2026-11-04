@@ -13,8 +13,8 @@ afterEach(() => {
 });
 
 test.each([
-    'MATERIAL1,FECHA,ID_CENTRO,SUMA_NETA\nTEST,2024-01-01,A,25\n',
-    ',,,SUMA_NETA\nMATERIAL1,FECHA,ID_CENTRO,\nTEST,2024-01-01,A,25\n'
+    'MATERIAL1,FECHA,ID_CENTRO,GRUPO_ARTICULOS,CLASE_MOVIMIENTO,SUMA_NETA\nTEST,2024-01-01,A,G,C,25\n',
+    ',,,,,SUMA_NETA\nMATERIAL1,FECHA,ID_CENTRO,GRUPO_ARTICULOS,CLASE_MOVIMIENTO,\nTEST,2024-01-01,A,G,C,25\n'
 ])('real CSV parser and factory publish synthetic CSV', async text => {
     process.env.DATA_SOURCE = 'CSV';
     const originalRead = fs.readFileSync;
@@ -22,7 +22,7 @@ test.each([
     jest.spyOn(fs, 'existsSync').mockImplementation(path => path === csv.csvPath || originalExists(path));
     jest.spyOn(fs, 'readFileSync').mockImplementation((path, ...args) => path === csv.csvPath ? Buffer.from(text) : originalRead(path, ...args));
     const rows = await data.reloadRows();
-    expect(rows).toEqual([{ MATERIAL1: 'TEST', FECHA: '2024-01-01', ID_CENTRO: 'A', SUMA_NETA: '25' }]);
+    expect(rows).toEqual([{ MATERIAL1: 'TEST', FECHA: '2024-01-01', ID_CENTRO: 'A', GRUPO_ARTICULOS: 'G', CLASE_MOVIMIENTO: 'C', SUMA_NETA: '25' }]);
     expect(await data.getRowsCached()).toBe(rows);
 });
 

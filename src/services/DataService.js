@@ -64,6 +64,7 @@ class DataService {
           - Si falta un filtro (fecha/centro/clase), pregunta cuál necesita.
           `;
         } catch (e) {
+            if (e instanceof require('./CsvSchemaService').SchemaError) throw e;
             if (e instanceof numeric.DataQualityError) throw e;
             return `Contexto CSV no disponible (error leyendo archivo): ${e.message}`;
         }
@@ -163,9 +164,12 @@ class DataService {
 
     async _loadRows(allowFallback) {
         try {
-            return { rows: await getDataProvider().loadData(), ttl: 24 * 60 * 60 * 1000 };
+            const provider = getDataProvider();
+            const rows = await provider.loadData();
+            if (provider === require('../providers/CsvProvider')) numeric.assertCsvContext(rows);
+            return { rows, ttl: 24 * 60 * 60 * 1000 };
         } catch (err) {
-            if (err instanceof transport.ODataTransportError || !allowFallback || !config.datasphere.exportUrl) throw err;
+            if (err instanceof require('./CsvSchemaService').SchemaError || err instanceof transport.ODataTransportError || !allowFallback || !config.datasphere.exportUrl) throw err;
             const ExportService = require("./ExportService");
             const { parse } = require("csv-parse/sync");
             const { normalizeHeader } = require("../utils/helpers");

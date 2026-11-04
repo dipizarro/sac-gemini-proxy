@@ -3,7 +3,7 @@
  */
 
 module.exports = (err, req, res, next) => {
-    if (err instanceof require('../utils/numeric').DataQualityError || err instanceof require('../services/ODataTransport').ODataTransportError) {
+    if (err instanceof require('../services/CsvSchemaService').SchemaError || err instanceof require('../utils/numeric').DataQualityError || err instanceof require('../services/ODataTransport').ODataTransportError) {
         return res.status(err.statusCode).json({
             success: false, error: err.message, code: err.code, details: err.details
         });

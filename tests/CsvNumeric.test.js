@@ -12,8 +12,8 @@ const cache = require('../src/services/CacheService');
 const router = require('../src/services/IntentRouterService');
 const gemini = require('../src/services/GeminiService');
 async function fixture(values) {
-    const text = 'MATERIAL1,FECHA,ID_CENTRO,GRUPO_ARTICULOS,SUMA_NETA\n' + values.map(v =>
-        'TEST,2024-01-01,TEST,TEST,' + JSON.stringify(v == null ? '' : String(v))).join('\n');
+    const text = 'MATERIAL1,FECHA,ID_CENTRO,GRUPO_ARTICULOS,CLASE_MOVIMIENTO,SUMA_NETA\n' + values.map(v =>
+        'TEST,2024-01-01,TEST,TEST,TEST,' + JSON.stringify(v == null ? '' : String(v))).join('\n');
     const originalExists = fs.existsSync;
     const exists = jest.spyOn(fs, 'existsSync').mockImplementation(path => path === csv.csvPath || originalExists(path));
     const originalRead = fs.readFileSync;

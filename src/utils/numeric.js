@@ -2,6 +2,24 @@ const { toNumberSmart } = require('./helpers');
 // Identidad del snapshot, sin campos extra en filas/JSON ni dependencia de DATA_SOURCE.
 const csvProfiles = new WeakMap();
 const sources = new WeakMap();
+const csvContexts = new WeakMap();
+const csvRows = new WeakSet();
+function registerValidatedCsv({ rows, columns, roles, revision }) {
+    registerCsv(rows, require('../config/numericProfiles'));
+    csvContexts.set(rows, Object.freeze({ source: 'CSV', revision, columns: Object.freeze([...columns]), roles: Object.freeze({ ...roles }), snapshotId: require('crypto').randomUUID() }));
+    rows.forEach(row => csvRows.add(row));
+    return rows;
+}
+function assertCsvContext(rows) {
+    const context = csvContexts.get(rows);
+    if (!context || rows.some(row => Object.keys(row).length !== context.columns.length || context.columns.some(c => !Object.hasOwn(row, c) || typeof row[c] !== 'string'))) require('../services/CsvSchemaService').fail('UNVALIDATED_SNAPSHOT');
+    return context;
+}
+function copyCsvContext(original, rows) {
+    const context = assertCsvContext(original);
+    if (rows.some(row => !original.includes(row))) require('../services/CsvSchemaService').fail('UNVALIDATED_SNAPSHOT');
+    return registerValidatedCsv({ rows, ...context });
+}
 function registerSource(rows, source, profiles = {}) {
     sources.set(rows, source);
     csvProfiles.set(rows, Object.freeze({ ...profiles }));
@@ -54,6 +72,7 @@ class DataQualityError extends Error {
 function isCsv(rows) { return sources.get(rows) === 'CSV'; }
 
 function readMetric(rows, row, key) {
+    if (!isStrict(rows) && rows.some(r => csvRows.has(r))) require('../services/CsvSchemaService').fail('UNVALIDATED_SNAPSHOT');
     if (!isStrict(rows)) return toNumberSmart(row[key]);
     const profiles = csvProfiles.get(rows);
     const profile = Object.hasOwn(profiles, key) ? profiles[key] : undefined;
@@ -70,4 +89,4 @@ function checkedInteger(rows, value) {
 function add(rows, a, b) { return checkedInteger(rows, a + b); }
 function difference(rows, a, b) { return checkedInteger(rows, Math.abs(a - b)); }
 
-module.exports = { registerSource, isStrict, qualityError, parseMetric, registerCsv, isCsv, readMetric, add, difference, DataQualityError };
+module.exports = { registerValidatedCsv, assertCsvContext, copyCsvContext, registerSource, isStrict, qualityError, parseMetric, registerCsv, isCsv, readMetric, add, difference, DataQualityError };
