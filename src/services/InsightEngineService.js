@@ -1,5 +1,5 @@
 const IndexService = require("./IndexService");
-const { toNumberSmart } = require("../utils/helpers");
+const numeric = require("../utils/numeric");
 
 class InsightEngineService {
     /**
@@ -306,6 +306,7 @@ class InsightEngineService {
         const { dateCol, sumaNetaCol } = this._detectCols(rows);
 
         if (!sumaNetaCol) {
+            if (numeric.isCsv(rows)) throw new numeric.DataQualityError('MISSING_FIELD');
             return { error: "MISSING_METRIC_SUMANETA" };
         }
 
@@ -322,11 +323,10 @@ class InsightEngineService {
                 const month = parseInt(dateKey.substring(5, 7), 10);
 
                 if (month === monthA || month === monthB) {
-                    const rawVal = row[sumaNetaCol];
-                    const val = toNumberSmart(rawVal);
+                    const val = numeric.readMetric(rows, row, sumaNetaCol);
 
-                    if (month === monthA) sumA += val;
-                    else if (month === monthB) sumB += val;
+                    if (month === monthA) sumA = numeric.add(rows, sumA, val);
+                    else if (month === monthB) sumB = numeric.add(rows, sumB, val);
                 }
             }
         }
@@ -335,7 +335,7 @@ class InsightEngineService {
         if (sumA > sumB) winner = "Mes A";
         else if (sumB > sumA) winner = "Mes B";
 
-        const diffAbs = Math.abs(sumB - sumA);
+        const diffAbs = numeric.difference(rows, sumB, sumA);
         const maxAbs = Math.max(Math.abs(sumA), Math.abs(sumB));
 
         let diffPct = 0;
@@ -504,8 +504,8 @@ class InsightEngineService {
                 const rowMonth = parseInt(dateKey.substring(5, 7), 10);
                 if (rowMonth === month) {
                     let val = row[metricKey];
-                    if (val !== undefined && val !== null && val !== "") {
-                        volumeTotal += toNumberSmart(val);
+                    if (numeric.isCsv(rows) || (val !== undefined && val !== null && val !== "")) {
+                        volumeTotal = numeric.add(rows, volumeTotal, numeric.readMetric(rows, row, metricKey));
                     }
                 }
             }
@@ -523,6 +523,7 @@ class InsightEngineService {
 
         const metricKey = this.resolveVolumeMetric(cols, metricKeyOverride);
         if (!metricKey) {
+            if (numeric.isCsv(rows)) throw new numeric.DataQualityError('MISSING_FIELD');
             return { error: "MISSING_VOLUME_METRIC" };
         }
 
@@ -532,7 +533,7 @@ class InsightEngineService {
         const sumA = resA.volumeTotal;
         const sumB = resB.volumeTotal;
 
-        const diffAbs = Math.abs(sumA - sumB);
+        const diffAbs = numeric.difference(rows, sumA, sumB);
         let diffPct = 0;
         if (sumA !== 0) {
             diffPct = (diffAbs / sumA) * 100;

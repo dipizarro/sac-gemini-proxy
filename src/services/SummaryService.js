@@ -1,5 +1,5 @@
 const DataService = require("./DataService");
-const { toNumberSmart } = require("../utils/helpers");
+const numeric = require("../utils/numeric");
 
 class SummaryService {
 
@@ -23,16 +23,17 @@ class SummaryService {
         // 2. Estadísticas Numéricas (SUMA_NETA / COL_8)
         // Detectar columna numérica: preferir SUMA_NETA, respaldo a COL_8
         const numCol = summary.columns.find(c => c.includes("SUMA_NETA")) || "COL_8";
+        if (numeric.isCsv(rows) && firstRow[numCol] === undefined) throw new numeric.DataQualityError('MISSING_FIELD');
         if (numCol && firstRow[numCol] !== undefined) {
             let min = Infinity, max = -Infinity, sum = 0, count = 0;
             const values = [];
 
             rows.forEach(r => {
-                const val = toNumberSmart(r[numCol]);
+                const val = numeric.readMetric(rows, r, numCol);
                 if (!isNaN(val)) {
                     if (val < min) min = val;
                     if (val > max) max = val;
-                    sum += val;
+                    sum = numeric.add(rows, sum, val);
                     values.push(val);
                     count++;
                 }
@@ -44,8 +45,9 @@ class SummaryService {
                     column: numCol,
                     min,
                     max,
-                    sum: Math.round(sum * 100) / 100,
-                    avg: Math.round((sum / count) * 100) / 100,
+                    sum: numeric.isCsv(rows) ? sum : Math.round(sum * 100) / 100,
+                    avg: numeric.isCsv(rows) && Math.abs(sum / count) > Number.MAX_SAFE_INTEGER / 100
+                        ? Number((sum / count).toFixed(2)) : Math.round((sum / count) * 100) / 100,
                     p50: values[Math.floor(count * 0.5)],
                     p90: values[Math.floor(count * 0.9)]
                 };

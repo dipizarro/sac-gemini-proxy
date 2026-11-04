@@ -1,5 +1,5 @@
 const IndexService = require("./IndexService");
-const { toNumberSmart } = require("../utils/helpers");
+const numeric = require("../utils/numeric");
 
 class QueryEngineService {
     /**
@@ -65,6 +65,8 @@ class QueryEngineService {
         const groupCol = cols.find(c => c.includes("GRUPO_ARTICULO"));
         const metricKey = cols.find(c => c === "SUMA_NETA") || cols.find(c => c.includes("NETA") || c.includes("SUMA"));
 
+        if (!metricKey && numeric.isCsv(rows)) throw new numeric.DataQualityError('MISSING_FIELD');
+
         if (!groupCol || !metricKey) {
             return {
                 error: "Faltan columnas core (Grupo Artículo o Suma Neta)",
@@ -91,14 +93,14 @@ class QueryEngineService {
                     rowsMatched++;
 
                     const center = row[centerCol];
-                    const val = toNumberSmart(row[metricKey]);
+                    const val = numeric.readMetric(rows, row, metricKey);
 
-                    totalSumaNeta += val;
+                    totalSumaNeta = numeric.add(rows, totalSumaNeta, val);
 
                     if (center) {
                         centersSet.add(center);
                         if (breakdownByCenter) {
-                            centerSumaCounts.set(center, (centerSumaCounts.get(center) || 0) + val);
+                            centerSumaCounts.set(center, numeric.add(rows, centerSumaCounts.get(center) || 0, val));
                         }
                     }
                 }

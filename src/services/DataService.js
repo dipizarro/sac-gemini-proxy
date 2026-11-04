@@ -1,4 +1,4 @@
-const { toNumberSmart } = require("../utils/helpers");
+const numeric = require("../utils/numeric");
 const OAuthService = require("./OAuthService");
 const config = require("../config/config");
 const { getDataProvider } = require("../providers/DataProviderFactory");
@@ -12,8 +12,8 @@ class DataService {
     sumBy(rows, key, valueKey) {
         return rows.reduce((acc, r) => {
             const k = (r[key] ?? "SIN_DATO").toString().trim() || "SIN_DATO";
-            const v = toNumberSmart(r[valueKey]);
-            acc[k] = (acc[k] || 0) + v;
+            const v = numeric.readMetric(rows, r, valueKey);
+            acc[k] = numeric.add(rows, acc[k] || 0, v);
             return acc;
         }, {});
     }
@@ -63,6 +63,7 @@ class DataService {
           - Si falta un filtro (fecha/centro/clase), pregunta cuál necesita.
           `;
         } catch (e) {
+            if (e instanceof numeric.DataQualityError) throw e;
             return `Contexto CSV no disponible (error leyendo archivo): ${e.message}`;
         }
     }

@@ -3,6 +3,11 @@
  */
 
 module.exports = (err, req, res, next) => {
+    if (err instanceof require('../utils/numeric').DataQualityError) {
+        return res.status(500).json({
+            success: false, error: err.message, code: err.code, details: err.details
+        });
+    }
     // Evitamos mostrar stack trace en consola en test para limpiar los logs, 
     // pero en dev/prod sí nos interesa ver qué tronó.
     console.error(`[Error] ${err.name || 'Failure'}: ${err.message}`, err.stack);

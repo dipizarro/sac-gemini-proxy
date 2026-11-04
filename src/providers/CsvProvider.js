@@ -102,7 +102,7 @@ class CsvProvider {
             });
         }
 
-        return rows;
+        return require('../utils/numeric').registerCsv(rows, require('../config/numericProfiles'));
     }
 }
 
