@@ -63,9 +63,57 @@ test('declared padding must be empty and anonymous COL_2 is preserved', async ()
     const h = header.replace('ID_CENTRO', ',ID_CENTRO');
     expect((await load(h+'\n'+row.replace(',A,',',opaque,A,')))[0].COL_2).toBe('opaque');
 });
-test('explicit named COL_8 layout maps to canonical metric without position inference', async () => {
-    const rows = await load(header.replace('SUMA_NETA','COL_8')+'\n'+row);
-    expect(rows[0]).toMatchObject({ SUMA_NETA: '10', COL_8: '10' });
-    expect(require('../src/services/QueryEngineService').sumSumaNetaByGroupAndDate(rows,'2024-01-01','G').totalSumaNeta).toBe(10);
+test('COL_8 without an approved historical layout cannot replace SUMA_NETA', async () => {
+    await expect(load(header.replace('SUMA_NETA','COL_8')+'\n'+row)).rejects.toMatchObject({
+        code: 'SCHEMA_CONTRACT_MISMATCH', details: { reason: 'MISSING_REQUIRED_COLUMN' }
+    });
     await expect(load(header.replace('SUMA_NETA','')+'\n'+row)).rejects.toThrow();
+});
+
+test('COL_8 remains an additional column when the canonical metric exists', async () => {
+    const rows = await load(header+',COL_8\n'+row+',other');
+    expect(rows[0]).toMatchObject({ SUMA_NETA: '10', COL_8: 'other' });
+    expect(require('../src/utils/numeric').readMetric(rows, rows[0], 'SUMA_NETA')).toBe(10);
+});
+
+// Count array element reads instead of relying on machine-dependent timings.
+function trackReads(rows) {
+    let reads = 0;
+    return { rows: new Proxy(rows, { get(target, key, receiver) {
+        if (typeof key === 'string' && /^\d+$/.test(key)) reads++;
+        return Reflect.get(target, key, receiver);
+    } }), count: () => reads };
+}
+
+test('context copy uses linear membership checks and preserves row identity', async () => {
+    const numeric = require('../src/utils/numeric');
+    const original = await load(header+'\n'+Array(100).fill(row).join('\n'));
+    const tracked = trackReads(original);
+    const context = numeric.assertCsvContext(original);
+    numeric.registerValidatedCsv({ ...context, rows: tracked.rows });
+    const before = tracked.count();
+    const copied = numeric.copyCsvContext(tracked.rows, original.slice().reverse());
+    expect(copied[0]).toBe(original[99]);
+    expect(tracked.count() - before).toBeLessThan(100 * 5);
+    expect(() => numeric.copyCsvContext(original, [{ ...original[0] }])).toThrow();
+});
+
+test('metric reads do not repeatedly traverse unregistered arrays', () => {
+    const numeric = require('../src/utils/numeric');
+    const tracked = trackReads(Array.from({ length: 100 }, () => ({ SUMA_NETA: '10' })));
+    for (const item of tracked.rows) expect(numeric.readMetric(tracked.rows, item, 'SUMA_NETA')).toBe(10);
+    expect(tracked.count()).toBeLessThan(100 * 3);
+});
+
+test('unregistered copies and mixed arrays reject reused CSV rows even after earlier reads', async () => {
+    const numeric = require('../src/utils/numeric');
+    const original = await load(header+'\n'+row);
+    const mixed = [{ ID_CENTRO: 'A', SUMA_NETA: '10' }];
+    expect(numeric.readMetric(mixed, mixed[0], 'SUMA_NETA')).toBe(10);
+    mixed.push(original[0]);
+    expect(() => numeric.readMetric(mixed, original[0], 'SUMA_NETA')).toThrow(expect.objectContaining({
+        code: 'SCHEMA_CONTRACT_MISMATCH', details: { reason: 'UNVALIDATED_SNAPSHOT', source: 'CSV' }
+    }));
+    expect(() => require('../src/services/DataService').sumBy(mixed, 'ID_CENTRO', 'SUMA_NETA')).toThrow();
+    expect(() => numeric.readMetric(original.slice(), original[0], 'SUMA_NETA')).toThrow();
 });

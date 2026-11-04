@@ -96,3 +96,46 @@ Las pruebas HTTP preexistentes requieren loopback y se ejecutaron con permiso am
 - EXPORT mantiene su contrato pendiente y su bloqueo numérico aprobado. No se ejecutaron jobs ni se asumió que su layout coincida con CSV local.
 
 Cambios locales listos para revisión; sin commit ni push.
+
+## Correcciones de revisión de df9ca64 — 2026-11-04
+
+Esta sección sustituye la aceptación del alias COL_8 descrita en la entrega original. Estado inicial de Git limpio; cambios locales, sin commit ni push.
+
+### Contrato del alias
+
+No se encontró una definición verificable de un layout histórico aprobado que permita identificar COL_8 como SUMA_NETA. El nombre literal por sí solo no constituye esa evidencia. Se elimina `metricAlias` y la síntesis de SUMA_NETA; la revisión del contrato pasa a `movmat-csv-2`. Si falta la columna canónica, incluso cuando existe COL_8, la carga falla con `SCHEMA_CONTRACT_MISMATCH / MISSING_REQUIRED_COLUMN` (HTTP 500 existente). Para habilitar un alias futuro será necesaria evidencia independiente del significado del layout y pruebas específicas, no una inferencia por nombre o posición.
+
+COL_8 se conserva como columna adicional cuando existe SUMA_NETA. No se cambian los perfiles numéricos aprobados. La recuperación de SUMA_NETA desde el encabezado superior válido continúa funcionando.
+
+### Copia y lectura
+
+`copyCsvContext` valida el original y construye un `Set` de referencias. La pertenencia de las M filas de destino deja de requerir M búsquedas lineales sobre las N originales: cuesta O(N + M), además de la validación estructural O(N × columnas), con memoria auxiliar O(N). Se conserva identidad estricta: un objeto clonado con los mismos campos sigue siendo rechazado. No se cambia la generación de identidad del snapshot ni la publicación de caché.
+
+`readMetric` consulta directamente `csvRows.has(row)` cuando el array carece de registro numérico. La detección cuesta O(1) por fila procesada y no memoriza clasificaciones de arrays mutables. Una copia superficial sin contexto falla al consumir una fila CSV. En un array mixto, una fila ajena puede leerse con el comportamiento legado existente; al consumir una fila CSV conocida se lanza `UNVALIDATED_SNAPSHOT` y la agregación no devuelve un resultado parcial exitoso. La comprobación no es una validación anticipada de filas que nunca se consumen. Una fila CSV incorporada después de lecturas anteriores también se rechaza. Las limitaciones sobre copias profundas y mutabilidad descritas anteriormente siguen vigentes.
+
+### Archivos de esta corrección
+
+- `src/config/csvContract.js`: elimina alias sin evidencia e identifica la revisión del contrato.
+- `src/services/CsvSchemaService.js`: exige todos los nombres canónicos y elimina la propiedad sintetizada.
+- `src/utils/numeric.js`: pertenencia mediante Set y comprobación directa de identidad al leer métricas.
+- `tests/CsvSchema.test.js`: regresiones de alias, complejidad, identidad y arrays mixtos modificados después de su primera lectura.
+- Este documento: evidencia y alcance de las correcciones.
+
+### Pruebas ejecutadas
+
+1. Baseline: **183/183 aprobadas**, 11 suites.
+2. Antes de modificar producción: suite CSV con **3 fallos y 14 aprobadas**. Se reprodujeron la aceptación incorrecta de COL_8 sin SUMA_NETA, 5.150 accesos a elementos al copiar 100 filas y 10.100 accesos al leer 100 métricas de un array sin contexto. Las pruebas cuentan accesos mediante Proxy, sin depender de tiempos de máquina.
+3. Después: suite completa **187/187 aprobadas**, 11 suites, salida 0, incluidas integración HTTP, OData, caché y contratos numéricos anteriores. Se conservan los 183 casos originales, con cambio intencional de la expectativa del caso del alias: ahora exige rechazo por la decisión explícita de revisión. Se añaden cuatro casos; no se elimina ninguna prueba.
+4. Lectura del CSV real local, sin modificarlo: `assertCsvContext` aprobó revisión `movmat-csv-2`, nueve columnas, los seis roles y COL_2 conservado. Solo se imprimieron indicadores estructurales; no se publicaron valores de negocio. No se afirma una comparación exhaustiva de cálculos del dataset real.
+5. `git diff --check`: salida 0; solo avisos de normalización LF/CRLF de Git. Revisión del diff limitada a los cinco archivos anteriores.
+
+Comandos de pruebas:
+
+```powershell
+node node_modules/jest/bin/jest.js tests/CsvSchema.test.js --runInBand --silent --cache=false
+node node_modules/jest/bin/jest.js --runInBand --silent --cache=false
+git diff --check
+git diff --stat
+```
+
+La suite completa se ejecutó con permiso para loopback local. No se consultó SAP ni se modificaron OData, paginación, dependencias, TTL o coherencia de caché. Los pendientes de la Etapa 3B permanecen sin cambios.

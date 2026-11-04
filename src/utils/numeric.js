@@ -17,7 +17,8 @@ function assertCsvContext(rows) {
 }
 function copyCsvContext(original, rows) {
     const context = assertCsvContext(original);
-    if (rows.some(row => !original.includes(row))) require('../services/CsvSchemaService').fail('UNVALIDATED_SNAPSHOT');
+    const members = new Set(original);
+    if (rows.some(row => !members.has(row))) require('../services/CsvSchemaService').fail('UNVALIDATED_SNAPSHOT');
     return registerValidatedCsv({ rows, ...context });
 }
 function registerSource(rows, source, profiles = {}) {
@@ -72,7 +73,8 @@ class DataQualityError extends Error {
 function isCsv(rows) { return sources.get(rows) === 'CSV'; }
 
 function readMetric(rows, row, key) {
-    if (!isStrict(rows) && rows.some(r => csvRows.has(r))) require('../services/CsvSchemaService').fail('UNVALIDATED_SNAPSHOT');
+    // Comprobar la fila consumida en O(1), sin escanear el array ni cachear arrays mutables.
+    if (!isStrict(rows) && csvRows.has(row)) require('../services/CsvSchemaService').fail('UNVALIDATED_SNAPSHOT');
     if (!isStrict(rows)) return toNumberSmart(row[key]);
     const profiles = csvProfiles.get(rows);
     const profile = Object.hasOwn(profiles, key) ? profiles[key] : undefined;

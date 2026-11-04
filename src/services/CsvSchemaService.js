@@ -33,17 +33,14 @@ function decode(text) {
     if (!contract.leadingPadding.includes(padding)) fail('INCOMPATIBLE_COLUMN_LAYOUT');
     const names = raw.slice(padding).map(normalizeHeader);
     if (new Set(names).size !== names.length) fail('DUPLICATE_COLUMN');
-    const alias = !names.includes('SUMA_NETA') && raw.includes(contract.metricAlias);
-    for (const key of contract.required) if (!names.includes(key) && !(key === 'SUMA_NETA' && alias)) fail('MISSING_REQUIRED_COLUMN');
+    for (const key of contract.required) if (!names.includes(key)) fail('MISSING_REQUIRED_COLUMN');
     const roles = Object.fromEntries(contract.required.map(k => [k, k]));
     const rows = records.slice(start + 1).map(record => {
         if (record.length !== raw.length) fail('INVALID_ROW_STRUCTURE');
         if (record.slice(0, padding).some(c => c.trim() !== '')) fail('INCOMPATIBLE_COLUMN_LAYOUT');
         const result = Object.fromEntries(names.map((name, i) => [name, record[i + padding]]));
-        // Layout de alias explícito: preservar COL_8 y exponer el rol canónico.
-        if (alias) result.SUMA_NETA = result[contract.metricAlias];
         return result;
     });
-    return { rows, columns: alias ? [...names, 'SUMA_NETA'] : names, roles, revision: contract.revision };
+    return { rows, columns: names, roles, revision: contract.revision };
 }
 module.exports = { decode, SchemaError, fail };
