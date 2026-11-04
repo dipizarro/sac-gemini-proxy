@@ -55,9 +55,9 @@ class CsvController {
         try {
             const rows = await DataService.getRowsCached();
             const columns = Object.keys(rows[0] || {});
-            const numericCol = columns.includes("SUMA_NETA") ? "SUMA_NETA"
-                : columns.includes("COL_8") ? "COL_8" : null;
             const numeric = require('../utils/numeric');
+            const numericCol = numeric.isCsv(rows) || columns.includes("SUMA_NETA") ? "SUMA_NETA"
+                : columns.includes("COL_8") ? "COL_8" : null;
             if (!numericCol && rows.length && numeric.isStrict(rows)) throw numeric.qualityError(rows, 'MISSING_FIELD');
             const topCentros = numericCol
                 ? DataService.topN(DataService.sumBy(rows, "ID_CENTRO", numericCol), 5)

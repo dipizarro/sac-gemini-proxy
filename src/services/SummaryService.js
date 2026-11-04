@@ -20,9 +20,9 @@ class SummaryService {
         const firstRow = rows[0];
         summary.columns = Object.keys(firstRow);
 
-        // 2. Estadísticas Numéricas (SUMA_NETA / COL_8)
-        // Detectar columna numérica: preferir SUMA_NETA, respaldo a COL_8
-        const numCol = summary.columns.find(c => c.includes("SUMA_NETA")) || "COL_8";
+        // CSV registrado exige la métrica canónica; conservar selección previa para otros orígenes.
+        const numCol = numeric.isCsv(rows) ? "SUMA_NETA"
+            : summary.columns.find(c => c.includes("SUMA_NETA")) || "COL_8";
         if (numeric.isStrict(rows) && firstRow[numCol] === undefined) throw numeric.qualityError(rows, 'MISSING_FIELD');
         if (numCol && firstRow[numCol] !== undefined) {
             let min = Infinity, max = -Infinity, sum = 0, count = 0;

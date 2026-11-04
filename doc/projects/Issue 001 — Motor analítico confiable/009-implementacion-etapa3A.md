@@ -139,3 +139,22 @@ git diff --stat
 ```
 
 La suite completa se ejecutó con permiso para loopback local. No se consultó SAP ni se modificaron OData, paginación, dependencias, TTL o coherencia de caché. Los pendientes de la Etapa 3B permanecen sin cambios.
+
+### Ajuste final de consistencia tras revisión de 5c170eb
+
+Se elimina COL_8 de `src/config/numericProfiles.js`: no existe un contrato numérico independiente aprobado para esa columna. Esta decisión sustituye la conservación de ese perfil descrita en las entregas anteriores. SUMA_NETA sigue siendo obligatoria y es la única métrica autorizada por la configuración CSV. COL_8 puede conservar contenido adicional, pero su lectura como métrica produce `DATA_QUALITY_ERROR / UNCONFIGURED_PROFILE` aun cuando su texto parezca un entero válido.
+
+Se revisaron todas las referencias a COL_8 en producción. `SummaryService.buildRichSummary`, `DataService.getInsights` y `CsvController.getSummary` seleccionan ahora exactamente SUMA_NETA para datasets registrados como CSV, incluidos snapshots validados. No seleccionan COL_8 ni nombres que simplemente contengan SUMA_NETA. Si se elimina la métrica canónica después de validar el snapshot, el cálculo falla con `DATA_QUALITY_ERROR / MISSING_FIELD`; el endpoint devuelve el HTTP 500 estructurado existente. La carga inicial sin SUMA_NETA continúa siendo rechazada por el contrato estructural. Las ramas de selección anteriores se conservan para otros orígenes y arrays sin procedencia; no se modifica el contrato OData ni EXPORT.
+
+Archivos de este ajuste: `src/config/numericProfiles.js`, `src/services/SummaryService.js`, `src/services/DataService.js`, `src/controllers/CsvController.js`, `tests/CsvNumeric.test.js` y este documento. No cambia caché, paginación, dependencias ni configuración privada.
+
+Validación realizada:
+
+- Git estaba limpio al comenzar. Baseline: **187/187 pruebas**, 11 suites.
+- Antes de modificar producción, `CsvNumeric.test.js`: **3 fallos y 37 aprobadas**. El caso histórico aceptaba la sustitución; el nuevo caso de perfil esperaba UNCONFIGURED_PROFILE pero recibía INVALID_FORMAT; el endpoint devolvía HTTP 200 en lugar del rechazo esperado.
+- Cambio intencional de expectativa: la prueba histórica del alias ahora exige MISSING_FIELD al eliminar SUMA_NETA aunque COL_8 exista. No se elimina el caso.
+- Dos casos nuevos verifican cálculo canónico (990 con valores sintéticos 1.000 y -10), preservación de COL_8 con texto diferente, bloqueo de su uso numérico explícito, respuesta HTTP correcta y rechazo del fallback en `getInsights`.
+- Suite completa final: **189/189 pruebas aprobadas, 11 suites**, salida 0. Incluye las suites CSV/OData/EXPORT, HTTP y caché existentes. Se ejecutó `node node_modules/jest/bin/jest.js --runInBand --silent --cache=false`; la reproducción previa usó el mismo comando limitado a `tests/CsvNumeric.test.js`.
+- `git diff --check` y revisión del diff final: sin errores de whitespace ni modificaciones ajenas al ajuste (Git advierte normalización LF/CRLF).
+
+No se consultó SAP ni se utilizaron datos de negocio en las pruebas. No se realizó commit ni push. La Etapa 3A queda preparada para revisión de cierre; permanecen los pendientes de la Etapa 3B ya documentados.

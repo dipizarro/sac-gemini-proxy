@@ -11,9 +11,9 @@ const summary = require('../src/services/SummaryService');
 const cache = require('../src/services/CacheService');
 const router = require('../src/services/IntentRouterService');
 const gemini = require('../src/services/GeminiService');
-async function fixture(values) {
-    const text = 'MATERIAL1,FECHA,ID_CENTRO,GRUPO_ARTICULOS,CLASE_MOVIMIENTO,SUMA_NETA\n' + values.map(v =>
-        'TEST,2024-01-01,TEST,TEST,TEST,' + JSON.stringify(v == null ? '' : String(v))).join('\n');
+async function fixture(values, extraColumn = false) {
+    const text = 'MATERIAL1,FECHA,ID_CENTRO,GRUPO_ARTICULOS,CLASE_MOVIMIENTO,SUMA_NETA' + (extraColumn ? ',COL_8' : '') + '\n' + values.map(v =>
+        'TEST,2024-01-01,TEST,TEST,TEST,' + JSON.stringify(v == null ? '' : String(v)) + (extraColumn ? ',unrelated' : '')).join('\n');
     const originalExists = fs.existsSync;
     const exists = jest.spyOn(fs, 'existsSync').mockImplementation(path => path === csv.csvPath || originalExists(path));
     const originalRead = fs.readFileSync;
@@ -45,13 +45,45 @@ test('summary does not corrupt a safe boundary integer by multiplying by 100', a
     const rows = await fixture(['9007199254740991']);
     expect(summary.buildRichSummary(rows).numericStats).toMatchObject({ sum: Number.MAX_SAFE_INTEGER, avg: Number.MAX_SAFE_INTEGER });
 });
-test('configured COL_8 alias uses the same strict CSV profile', async () => {
+test('CSV summary rejects missing SUMA_NETA even when COL_8 exists', async () => {
     const rows = await fixture(['1,000']);
     rows[0].COL_8 = rows[0].SUMA_NETA;
     delete rows[0].SUMA_NETA;
-    expect(summary.buildRichSummary(rows).numericStats.sum).toBe(1000);
-    rows[0].COL_8 = 'bad';
-    expect(() => summary.buildRichSummary(rows)).toThrow();
+    expect(() => summary.buildRichSummary(rows)).toThrow(expect.objectContaining({
+        code: 'DATA_QUALITY_ERROR', details: expect.objectContaining({ reason: 'MISSING_FIELD' })
+    }));
+});
+
+test('validated CSV keeps COL_8 as opaque data and calculates only SUMA_NETA', async () => {
+    const rows = await fixture(['1,000', '-10'], true);
+    expect(rows[0].COL_8).toBe('unrelated');
+    expect(summary.buildRichSummary(rows).numericStats).toMatchObject({ column: 'SUMA_NETA', sum: 990 });
+    expect(query.sumSumaNetaByGroupAndDate(rows, '2024-01-01', 'TEST').totalSumaNeta).toBe(990);
+    rows[0].COL_8 = '99';
+    expect(() => data.sumBy(rows, 'ID_CENTRO', 'COL_8')).toThrow(expect.objectContaining({
+        code: 'DATA_QUALITY_ERROR', details: expect.objectContaining({ reason: 'UNCONFIGURED_PROFILE' })
+    }));
+    cache.set('MOVMAT_DATA', rows);
+    expect((await request('/csv/summary')).body.topCentros).toEqual([['TEST', 990]]);
+});
+
+test('CSV HTTP summary and insights never substitute COL_8 for missing SUMA_NETA', async () => {
+    const rows = await fixture(['10'], true);
+    rows[0].COL_8 = '99';
+    delete rows[0].SUMA_NETA;
+    cache.set('MOVMAT_DATA', rows);
+    const result = await request('/csv/summary');
+    expect(result.status).toBe(500);
+    expect(result.body.details.reason).toBe('MISSING_FIELD');
+    const load = jest.spyOn(csv, 'loadData').mockResolvedValue(rows);
+    const previous = process.env.DATA_SOURCE;
+    process.env.DATA_SOURCE = 'CSV';
+    try {
+        await expect(data.getInsights()).rejects.toMatchObject({ code: 'DATA_QUALITY_ERROR', details: { reason: 'MISSING_FIELD' } });
+    } finally {
+        load.mockRestore();
+        if (previous === undefined) delete process.env.DATA_SOURCE; else process.env.DATA_SOURCE = previous;
+    }
 });
 test('counts remain available for bad metrics', async () => {
     expect(query.countMovementsByDate(await fixture(['bad', '']), '2024-01-01').movements).toBe(2);

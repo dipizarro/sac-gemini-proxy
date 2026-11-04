@@ -38,8 +38,8 @@ class DataService {
             const provider = getDataProvider();
             const rows = await provider.loadData();
 
-            // Soportar tanto formato CSV (COL_8) como OData (SUMA_NETA)
-            const SUM_KEY = rows.length > 0 && typeof rows[0]["SUMA_NETA"] !== "undefined" ? "SUMA_NETA" : "COL_8";
+            // CSV registrado no admite sustitutos de la métrica canónica.
+            const SUM_KEY = numeric.isCsv(rows) || (rows.length > 0 && typeof rows[0]["SUMA_NETA"] !== "undefined") ? "SUMA_NETA" : "COL_8";
 
             const topCentros = this.topN(this.sumBy(rows, "ID_CENTRO", SUM_KEY), 5);
             const topClases = this.topN(this.countBy(rows, "CLASE_MOVIMIENTO"), 5);
