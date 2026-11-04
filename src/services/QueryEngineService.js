@@ -65,7 +65,7 @@ class QueryEngineService {
         const groupCol = cols.find(c => c.includes("GRUPO_ARTICULO"));
         const metricKey = cols.find(c => c === "SUMA_NETA") || cols.find(c => c.includes("NETA") || c.includes("SUMA"));
 
-        if (!metricKey && numeric.isCsv(rows)) throw new numeric.DataQualityError('MISSING_FIELD');
+        if (!metricKey && numeric.isStrict(rows)) throw numeric.qualityError(rows, 'MISSING_FIELD');
 
         if (!groupCol || !metricKey) {
             return {

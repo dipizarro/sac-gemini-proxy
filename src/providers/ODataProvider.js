@@ -1,3 +1,4 @@
+const transport = require('../services/ODataTransport');
 const config = require("../config/config");
 const OAuthService = require("../services/OAuthService");
 const { normalizeHeader } = require("../utils/helpers");
@@ -42,8 +43,6 @@ class ODataProvider {
         let skip = 0;
         let hasMoreData = true;
 
-        console.log(`[ODATA] Inciando extracción de datos. Page size: ${this.pageSize}`);
-
         while (hasMoreData) {
             try {
                 const token = await OAuthService.getAccessToken();
@@ -51,7 +50,7 @@ class ODataProvider {
 
                 params.append("$top", this.pageSize);
                 params.append("$skip", skip);
-                params.append("$format", "json");
+                params.append("$format", transport.FORMAT);
 
                 const url = `${baseUrl}?${params.toString()}`;
 
@@ -59,16 +58,10 @@ class ODataProvider {
                     method: "GET",
                     headers: {
                         "Authorization": `Bearer ${token}`,
-                        "Accept": "application/json"
+                        "Accept": transport.FORMAT
                     }
                 });
-
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`OData request failed: ${response.status} ${response.statusText} - ${errorText}`);
-                }
-
-                const data = await response.json();
+                const data = await transport.read(response);
 
                 // OData V2 devuelve { d: { results: [...] } }
                 // OData V4 devuelve { value: [...] }
@@ -84,7 +77,6 @@ class ODataProvider {
                     // Normalizar y agregar resultados
                     const normalizedPage = results.map(row => this.normalizeRecord(row));
                     allRecords = allRecords.concat(normalizedPage);
-                    console.log(`[ODATA] page fetched. Records in page: ${pageCount}. Total so far: ${allRecords.length}`);
                 }
 
                 // Determinar si hay más páginas
@@ -95,13 +87,10 @@ class ODataProvider {
                 }
 
             } catch (error) {
-                console.error(`[ODATA] Error fetching data at skip=${skip}:`, error.message);
-                throw error;
+                throw transport.sanitize(error);
             }
         }
-
-        console.log(`[ODATA] total records: ${allRecords.length}`);
-        return allRecords;
+        return transport.register(allRecords);
     }
 
     /**
@@ -146,35 +135,21 @@ class ODataProvider {
             }
 
             if (orderby && !count) params.append("$orderby", orderby);
-            params.append("$format", "json");
+            params.append("$format", transport.FORMAT);
 
             const url = `${baseUrl}?${params.toString()}`;
-
-            console.log(`[ODATA] Filtered query executed: ${url.replace(baseUrl, '')}`);
 
             const response = await fetch(url, {
                 method: "GET",
                 headers: {
                     "Authorization": `Bearer ${token}`,
-                    "Accept": "application/json"
+                    "Accept": transport.FORMAT
                 }
             });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`Filtered OData request failed: ${response.status} ${response.statusText} - ${errorText}`);
-            }
-
-            const data = await response.json();
+            const data = await transport.read(response);
 
             // Si solicitó count, intentamos extraer la propiedad
-            if (count) {
-                const countVal = data["@odata.count"] !== undefined ? data["@odata.count"] : null;
-                console.log(`[ODATA] Count returned: ${countVal}`);
-                if (countVal !== null) {
-                    return Number(countVal);
-                }
-            }
+            if (count) return transport.count(data['@odata.count']);
 
             const results = data.d?.results || data.value || data;
 
@@ -184,13 +159,10 @@ class ODataProvider {
 
             const normalizedRecords = results.map(row => this.normalizeRecord(row));
 
-            console.log(`[ODATA] Records returned: ${normalizedRecords.length}`);
-
-            return normalizedRecords;
+            return transport.register(normalizedRecords);
 
         } catch (error) {
-            console.error(`[ODATA] Error on filtered query:`, error.message);
-            throw error;
+            throw transport.sanitize(error);
         }
     }
 }

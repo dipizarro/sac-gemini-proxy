@@ -1,3 +1,4 @@
+const transport = require('./ODataTransport');
 const numeric = require("../utils/numeric");
 const OAuthService = require("./OAuthService");
 const config = require("../config/config");
@@ -77,7 +78,8 @@ class DataService {
      * @returns {Promise<Object>} Respuesta JSON de Datasphere
      */
     async fetchMovMat({ top = 50, select, filter } = {}) {
-        const token = await OAuthService.getAccessToken();
+        let token;
+        try { token = await OAuthService.getAccessToken(); } catch (error) { throw transport.sanitize(error); }
         const baseUrl = config.datasphere.url;
 
         if (!baseUrl) {
@@ -101,7 +103,7 @@ class DataService {
         }
 
         // $format
-        params.append("$format", "json");
+        params.append("$format", transport.FORMAT);
 
         const url = `${baseUrl}?${params.toString()}`;
 
@@ -110,19 +112,14 @@ class DataService {
                 method: "GET",
                 headers: {
                     "Authorization": `Bearer ${token}`,
-                    "Accept": "application/json"
+                    "Accept": transport.FORMAT
                 }
             });
 
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`OData request failed: ${response.status} ${response.statusText} - ${errorText}`);
-            }
-
-            return await response.json();
+            return await transport.read(response);
         } catch (error) {
             // Re-lanzar error (OAuthService ya maneja sus errores, aquí manejamos el fetch de datos)
-            throw new Error(`Failed to fetch MovMat data: ${error.message}`);
+            throw transport.sanitize(error);
         }
     }
     /** Devuelve el snapshot vigente o comparte la carga en curso. */
@@ -168,18 +165,18 @@ class DataService {
         try {
             return { rows: await getDataProvider().loadData(), ttl: 24 * 60 * 60 * 1000 };
         } catch (err) {
-            if (!allowFallback || !config.datasphere.exportUrl) throw err;
+            if (err instanceof transport.ODataTransportError || !allowFallback || !config.datasphere.exportUrl) throw err;
             const ExportService = require("./ExportService");
             const { parse } = require("csv-parse/sync");
             const { normalizeHeader } = require("../utils/helpers");
             const buffer = await ExportService.exportToCsvBuffer({ resourcePath: config.datasphere.movMatPath });
             return {
-                rows: parse(buffer, {
+                rows: numeric.registerSource(parse(buffer, {
                     columns: header => header.map(normalizeHeader),
                     skip_empty_lines: true,
                     trim: true,
                     relax_quotes: true
-                }),
+                }), 'EXPORT'),
                 ttl: 10 * 60 * 1000
             };
         }

@@ -306,7 +306,7 @@ class InsightEngineService {
         const { dateCol, sumaNetaCol } = this._detectCols(rows);
 
         if (!sumaNetaCol) {
-            if (numeric.isCsv(rows)) throw new numeric.DataQualityError('MISSING_FIELD');
+            if (numeric.isStrict(rows)) throw numeric.qualityError(rows, 'MISSING_FIELD');
             return { error: "MISSING_METRIC_SUMANETA" };
         }
 
@@ -504,7 +504,7 @@ class InsightEngineService {
                 const rowMonth = parseInt(dateKey.substring(5, 7), 10);
                 if (rowMonth === month) {
                     let val = row[metricKey];
-                    if (numeric.isCsv(rows) || (val !== undefined && val !== null && val !== "")) {
+                    if (numeric.isStrict(rows) || (val !== undefined && val !== null && val !== "")) {
                         volumeTotal = numeric.add(rows, volumeTotal, numeric.readMetric(rows, row, metricKey));
                     }
                 }
@@ -523,7 +523,7 @@ class InsightEngineService {
 
         const metricKey = this.resolveVolumeMetric(cols, metricKeyOverride);
         if (!metricKey) {
-            if (numeric.isCsv(rows)) throw new numeric.DataQualityError('MISSING_FIELD');
+            if (numeric.isStrict(rows)) throw numeric.qualityError(rows, 'MISSING_FIELD');
             return { error: "MISSING_VOLUME_METRIC" };
         }
 

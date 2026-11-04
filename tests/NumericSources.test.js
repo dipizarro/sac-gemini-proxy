@@ -25,5 +25,6 @@ test('export fallback remains unprofiled even when DATA_SOURCE is CSV', async ()
     exporter.exportToCsvBuffer.mockResolvedValue(Buffer.from('ID_CENTRO,SUMA_NETA\nTEST,1.5\n'));
     const rows = await data.getRowsCached();
     expect(numeric.isCsv(rows)).toBe(false);
-    expect(data.sumBy(rows, 'ID_CENTRO', 'SUMA_NETA')).toEqual({ TEST: 1.5 });
+    expect(() => data.sumBy(rows, 'ID_CENTRO', 'SUMA_NETA')).toThrow();
+    expect(data.countBy(rows, 'ID_CENTRO')).toEqual({ TEST: 1 });
 });
