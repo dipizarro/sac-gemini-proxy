@@ -12,6 +12,7 @@ const format = require('../src/services/ODataTransport').FORMAT;
 const originalFetch = global.fetch, originalSource = process.env.DATA_SOURCE;
 const metadata = () => require('../src/services/ODataMetadataService');
 const schema = () => require('../src/services/ODataSchemaService');
+const numeric = require('../src/utils/numeric');
 const row = () => ({ MATERIAL1: 1, FECHA: '2024-01-01', ID_CENTRO: 'A', GRUPO_ARTICULOS: 'TEST', CLASE_MOVIMIENTO: 'C', SUMA_NETA: '10' });
 function xml({ omit, metric = 'Edm.Int64', extra = '', unit = false, nullable = 'false' } = {}) {
     const properties = { MATERIAL1: 'Edm.Int32', FECHA: 'Edm.Date', ID_CENTRO: 'Edm.String', GRUPO_ARTICULOS: 'Edm.String', CLASE_MOVIMIENTO: 'Edm.String', SUMA_NETA: metric };
@@ -33,6 +34,83 @@ afterEach(() => {
     try { metadata().clear(); } catch { /* regression-before-implementation */ }
     data.clearCache(); jest.restoreAllMocks(); jest.clearAllMocks(); global.fetch = originalFetch;
     if (originalSource === undefined) delete process.env.DATA_SOURCE; else process.env.DATA_SOURCE = originalSource;
+});
+
+const unvalidatedOData = { code: 'SCHEMA_CONTRACT_MISMATCH', details: expect.objectContaining({ source: 'ODATA', reason: 'UNVALIDATED_SNAPSHOT' }) };
+test.each(['slice', 'filter'])('unregistered OData %s blocks metrics but preserves counts', async method => {
+    const rows = await provider.loadData();
+    const copy = method === 'slice' ? rows.slice() : rows.filter(() => true);
+    expect(() => data.sumBy(copy, 'ID_CENTRO', 'SUMA_NETA')).toThrow(expect.objectContaining(unvalidatedOData));
+    expect(data.countBy(copy, 'ID_CENTRO')).toEqual({ A: 1 });
+});
+test.each(['9007199254740993', '12bad'])('copied OData never delegates %s to legacy conversion', async value => {
+    pages = [{ value: [{ ...row(), SUMA_NETA: value }] }];
+    const rows = await provider.loadData();
+    expect(() => data.sumBy(rows.slice(), 'ID_CENTRO', 'SUMA_NETA')).toThrow(expect.objectContaining(unvalidatedOData));
+    expect(() => data.sumBy(rows, 'ID_CENTRO', 'SUMA_NETA')).toThrow(expect.objectContaining({ code: 'DATA_QUALITY_ERROR' }));
+    const authorized = schema().copyContext(rows, rows.slice());
+    expect(() => data.sumBy(authorized, 'ID_CENTRO', 'SUMA_NETA')).toThrow(expect.objectContaining({ code: 'DATA_QUALITY_ERROR' }));
+});
+test('explicit OData copy has numeric parity and rejects arbitrary cloned rows', async () => {
+    pages = [{ value: [row(), { ...row(), SUMA_NETA: '-3' }, { ...row(), SUMA_NETA: '0' }] }];
+    const rows = await provider.loadData();
+    const authorized = schema().copyContext(rows, rows.filter(() => true));
+    expect(data.sumBy(authorized, 'ID_CENTRO', 'SUMA_NETA')).toEqual({ A: 7 });
+    expect(data.sumBy(authorized, 'ID_CENTRO', 'SUMA_NETA')).toEqual(data.sumBy(rows, 'ID_CENTRO', 'SUMA_NETA'));
+    const clones = rows.map(r => ({ ...r }));
+    expect(() => schema().copyContext(rows, clones)).toThrow();
+    expect(numeric.isStrict(clones)).toBe(false);
+    expect(schema().context(clones)).toBeUndefined();
+});
+test('mixed and mutated arrays cannot hide known OData identities after an earlier read', async () => {
+    const rows = await provider.loadData();
+    const foreign = { ID_CENTRO: 'A', SUMA_NETA: '1' };
+    const mixed = [foreign, rows[0]];
+    expect(() => data.sumBy(mixed, 'ID_CENTRO', 'SUMA_NETA')).toThrow(expect.objectContaining(unvalidatedOData));
+    const changing = [foreign];
+    expect(numeric.readMetric(changing, foreign, 'SUMA_NETA')).toBe(1);
+    changing[0] = rows[0]; // Same length: no cached array classification may hide this mutation.
+    expect(() => numeric.readMetric(changing, changing[0], 'SUMA_NETA')).toThrow(expect.objectContaining(unvalidatedOData));
+    changing[0] = foreign;
+    expect(numeric.readMetric(changing, foreign, 'SUMA_NETA')).toBe(1);
+    changing.push(rows[0]);
+    expect(() => data.sumBy(changing, 'ID_CENTRO', 'SUMA_NETA')).toThrow(expect.objectContaining(unvalidatedOData));
+});
+test('thousands of reads remain linear without scanning arrays for each metric', async () => {
+    const size = 5000;
+    function track(rows) {
+        let reads = 0;
+        const array = new Proxy(rows, { get(target, key, receiver) {
+            if (typeof key === 'string' && /^\d+$/.test(key)) reads++;
+            return Reflect.get(target, key, receiver);
+        } });
+        return { array, count: () => reads };
+    }
+    // A scan for known identities on every legacy read would turn this into O(N²).
+    const foreign = track(Array.from({ length: size }, () => ({ ID_CENTRO: 'A', SUMA_NETA: '1' })));
+    expect(data.sumBy(foreign.array, 'ID_CENTRO', 'SUMA_NETA')).toEqual({ A: size });
+    expect(foreign.count()).toBeLessThan(size * 3);
+    provider.pageSize = size + 1; pages = [{ value: Array.from({ length: size }, row) }];
+    const rows = await provider.loadData();
+    const copied = track(rows.slice());
+    schema().copyContext(rows, copied.array);
+    const before = copied.count();
+    expect(data.sumBy(copied.array, 'ID_CENTRO', 'SUMA_NETA')).toEqual({ A: size * 10 });
+    expect(copied.count() - before).toBeLessThan(size * 3);
+    const unregistered = track(rows.slice());
+    expect(() => data.sumBy(unregistered.array, 'ID_CENTRO', 'SUMA_NETA')).toThrow(expect.objectContaining(unvalidatedOData));
+    expect(unregistered.count()).toBeLessThan(3);
+});
+test('unregistered-copy failure preserves the existing safe HTTP error contract', async () => {
+    const rows = await provider.loadData();
+    let error;
+    try { data.sumBy(rows.slice(), 'ID_CENTRO', 'SUMA_NETA'); } catch (e) { error = e; }
+    expect(error).toMatchObject(unvalidatedOData);
+    const response = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+    require('../src/middlewares/errorHandler')(error, {}, response, jest.fn());
+    expect(response.status).toHaveBeenCalledWith(502);
+    expect(response.json.mock.calls[0][0]).toMatchObject({ success: false, ...unvalidatedOData });
+    expect(response.json.mock.calls[0][0].stack).toBeUndefined();
 });
 
 test.each([

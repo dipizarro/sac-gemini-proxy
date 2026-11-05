@@ -4,6 +4,7 @@ const csvProfiles = new WeakMap();
 const sources = new WeakMap();
 const csvContexts = new WeakMap();
 const csvRows = new WeakSet();
+const odataRows = new WeakSet();
 function registerValidatedCsv({ rows, columns, roles, revision }) {
     registerCsv(rows, require('../config/numericProfiles'));
     csvContexts.set(rows, Object.freeze({ source: 'CSV', revision, columns: Object.freeze([...columns]), roles: Object.freeze({ ...roles }), snapshotId: require('crypto').randomUUID() }));
@@ -24,6 +25,8 @@ function copyCsvContext(original, rows) {
 function registerSource(rows, source, profiles = {}) {
     sources.set(rows, source);
     csvProfiles.set(rows, Object.freeze({ ...profiles }));
+    // Proteger identidades desde el registro OData, sin etiquetar clones ni arrays derivados.
+    if (source === 'ODATA') rows.forEach(row => { if (row && typeof row === 'object') odataRows.add(row); });
     return rows;
 }
 function isStrict(rows) { return csvProfiles.has(rows); }
@@ -75,6 +78,7 @@ function isCsv(rows) { return sources.get(rows) === 'CSV'; }
 function readMetric(rows, row, key) {
     // Comprobar la fila consumida en O(1), sin escanear el array ni cachear arrays mutables.
     if (!isStrict(rows) && csvRows.has(row)) require('../services/CsvSchemaService').fail('UNVALIDATED_SNAPSHOT');
+    if (!isStrict(rows) && odataRows.has(row)) throw new (require('../services/ODataSchemaError'))('UNVALIDATED_SNAPSHOT');
     if (!isStrict(rows)) return toNumberSmart(row[key]);
     const profiles = csvProfiles.get(rows);
     const profile = Object.hasOwn(profiles, key) ? profiles[key] : undefined;

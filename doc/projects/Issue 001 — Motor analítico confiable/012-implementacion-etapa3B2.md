@@ -156,3 +156,47 @@ Las pruebas HTTP locales necesitaron loopback autorizado. `git diff --check` no 
 - La compatibilidad con registros reales queda pendiente de una verificación controlada distinta; esta etapa comprobó exclusivamente el contrato CSDL real. EXPORT continúa sin contrato aprobado.
 
 Cambios locales preparados para revisión. No se realizó commit ni push.
+
+## 10. Corrección de revisión de 743b37f — protección de copias OData
+
+Fecha: 2026-11-05. Estado inicial de Git limpio. Esta corrección cierra la pérdida de integridad numérica en copias superficiales sin registro, sin cambiar la adquisición ni validación de metadata.
+
+### Defecto reproducido
+
+El contexto estructural y el perfil numérico estaban asociados al array. `slice()` y `filter()` creaban arrays nuevos sin ese registro, aunque reutilizaran las mismas filas OData validadas. `numeric.readMetric` protegía identidades CSV, pero permitía que esas filas OData pasaran a `toNumberSmart`. Las regresiones demostraron que no se rechazaban ni el texto sintético `12bad` ni el Int64 sintético `9007199254740993` en una copia no registrada. También faltaba rechazo en arrays mixtos.
+
+### Corrección aplicada
+
+Se añade un WeakSet privado de filas OData en `numeric.js`. `registerSource` marca por identidad los objetos cuando el origen es ODATA. Esto protege tanto las filas registradas por el transporte como los snapshots normalizados y las copias autorizadas; no convierte ese registro numérico en una certificación estructural. ODataSchemaService sigue siendo responsable de validar el contrato.
+
+Antes de usar el conversor legado, `readMetric` comprueba `odataRows.has(row)` si el array no tiene registro numérico. Si la fila es conocida, lanza el error existente `SCHEMA_CONTRACT_MISMATCH`, source ODATA y reason UNVALIDATED_SNAPSHOT. El middleware conserva HTTP 502, mensaje saneado y ausencia de stack/cuerpo privado. No se alteró el middleware ni se introdujo un nuevo contrato HTTP.
+
+La guarda usa una consulta de identidad por fila: O(1) esperado, sin recorrer el dataset ni memorizar clasificaciones de arrays mutables. Registrar N filas añade O(N) de trabajo; el WeakSet no mantiene referencias fuertes que impidan su recolección. `copyContext` continúa siendo la transferencia explícita: conserva contrato, perfiles, identidad de las filas y linaje. No se modificó su implementación.
+
+La guarda CSV permanece intacta. No se cambiaron numericProfiles, parseMetric/odata-int64, acumulados, diferencias, CSDL, metadata, TTL, single-flight, paginación, configuración, dependencias o EXPORT. Solo se modificaron `src/utils/numeric.js`, `tests/ODataSchema.test.js` y esta sección documental.
+
+### Pruebas antes y después
+
+- Baseline ejecutado: **278/278**, 13 suites.
+- Se añadieron ocho casos antes de modificar producción. La suite estructural OData dio **7 fallos y 43 aprobadas** (50 casos): reprodujo aceptación de slice/filter, entradas inseguras/inválidas, arrays mixtos y ausencia del error esperado. La copia explícita con valores válidos ya funcionaba y se conserva.
+- Suite completa después: **286/286**, 13 suites, salida 0. No se eliminó ni se modificó la expectativa de ninguna de las 278 pruebas anteriores.
+- Cobertura añadida: slice/filter bloqueados; conteos conservados; igualdad de suma entre original y copia autorizada; calidad estricta para Int64 inseguro y texto inválido; rechazo de clones en copyContext; arrays mixtos; reemplazo de fila sin cambiar longitud y append después de una lectura previa; serialización HTTP saneada del nuevo rechazo.
+- Complejidad: una prueba con **5.000 filas** cuenta accesos mediante Proxy, sin umbrales de tiempo. Verifica lectura lineal de filas ajenas y de la copia OData autorizada; una copia OData no registrada falla al consumir su primera fila, con menos de tres accesos al array. Una búsqueda completa repetida por métrica no satisface estos límites.
+- La suite completa conserva las comprobaciones de CSV, OData, EXPORT, caché, chat y HTTP. No se consultó SAP ni se incorporaron datos reales.
+
+Comandos ejecutados:
+
+```powershell
+node node_modules/jest/bin/jest.js tests/ODataSchema.test.js --runInBand --silent --cache=false
+node node_modules/jest/bin/jest.js --runInBand --silent --cache=false
+git diff --check
+git diff --stat
+```
+
+`git diff --check` no encontró errores de whitespace; solo se observaron avisos de normalización LF/CRLF. Los cambios quedan locales, sin commit ni push.
+
+### Riesgos residuales
+
+La comprobación protege la fila consumida, no valida anticipadamente todas las filas de un array mixto: una fila ajena puede leerse con el comportamiento legado anterior, pero al consumir una fila OData protegida la agregación lanza error y no devuelve un resultado parcial exitoso. No se extiende la guarda a conteos que no leen métricas.
+
+Una copia profunda pierde identidad de fila y no puede reconocerse con WeakSet. No se registra automáticamente ni se presume válida: requiere revalidación explícita del contrato; copyContext la rechaza. Los registros internos siguen siendo APIs confiables, no una barrera contra código que los invoque deliberadamente con procedencia falsa. La mutabilidad de filas después de publicar y el resto de limitaciones de la sección 9 permanecen sin cambios.
