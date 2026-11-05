@@ -1,4 +1,6 @@
 const transport = require('./ODataTransport');
+const odataSchema = require('./ODataSchemaService');
+const ODataSchemaError = require('./ODataSchemaError');
 const numeric = require("../utils/numeric");
 const OAuthService = require("./OAuthService");
 const config = require("../config/config");
@@ -64,6 +66,7 @@ class DataService {
           - Si falta un filtro (fecha/centro/clase), pregunta cuál necesita.
           `;
         } catch (e) {
+            if (e instanceof ODataSchemaError || e instanceof transport.ODataTransportError) throw e;
             if (e instanceof require('./CsvSchemaService').SchemaError) throw e;
             if (e instanceof numeric.DataQualityError) throw e;
             return `Contexto CSV no disponible (error leyendo archivo): ${e.message}`;
@@ -79,6 +82,7 @@ class DataService {
      * @returns {Promise<Object>} Respuesta JSON de Datasphere
      */
     async fetchMovMat({ top = 50, select, filter } = {}) {
+        const ticket = await odataSchema.prepare({ base: config.datasphere.url, select, filter });
         let token;
         try { token = await OAuthService.getAccessToken(); } catch (error) { throw transport.sanitize(error); }
         const baseUrl = config.datasphere.url;
@@ -117,8 +121,12 @@ class DataService {
                 }
             });
 
-            return await transport.read(response);
+            const result = await transport.read(response);
+            odataSchema.validate(result.value, ticket);
+            await odataSchema.finish(result.value, ticket, false);
+            return result;
         } catch (error) {
+            if (error instanceof ODataSchemaError) throw error;
             // Re-lanzar error (OAuthService ya maneja sus errores, aquí manejamos el fetch de datos)
             throw transport.sanitize(error);
         }
@@ -165,11 +173,12 @@ class DataService {
     async _loadRows(allowFallback) {
         try {
             const provider = getDataProvider();
-            const rows = await provider.loadData();
+            const rows = await provider.loadData({ forceMetadata: !allowFallback });
             if (provider === require('../providers/CsvProvider')) numeric.assertCsvContext(rows);
+            if (typeof provider.assertSnapshot === 'function') provider.assertSnapshot(rows);
             return { rows, ttl: 24 * 60 * 60 * 1000 };
         } catch (err) {
-            if (err instanceof require('./CsvSchemaService').SchemaError || err instanceof transport.ODataTransportError || !allowFallback || !config.datasphere.exportUrl) throw err;
+            if (err instanceof ODataSchemaError || err instanceof require('./CsvSchemaService').SchemaError || err instanceof transport.ODataTransportError || !allowFallback || !config.datasphere.exportUrl) throw err;
             const ExportService = require("./ExportService");
             const { parse } = require("csv-parse/sync");
             const { normalizeHeader } = require("../utils/helpers");

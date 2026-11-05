@@ -1,4 +1,6 @@
 const transport = require('../services/ODataTransport');
+const schema = require('../services/ODataSchemaService');
+const SchemaError = require('../services/ODataSchemaError');
 const config = require("../config/config");
 const OAuthService = require("../services/OAuthService");
 const { normalizeHeader } = require("../utils/helpers");
@@ -20,7 +22,7 @@ class ODataProvider {
         const normalized = {};
         for (const [key, value] of Object.entries(record)) {
             // Ignoramos metadatos propios de OData (ej. __metadata)
-            if (key.startsWith("__")) continue;
+            if (key.startsWith("__") || key.startsWith('@odata.') || key.includes('@odata.')) continue;
 
             const normalizedKey = normalizeHeader(key);
             normalized[normalizedKey] = value;
@@ -32,8 +34,9 @@ class ODataProvider {
      * Consume el endpoint OData y trae todos los registros usando paginación.
      * @returns {Promise<Array>} Array con todos los registros normalizados
      */
-    async fetchAllMovMatData() {
+    async fetchAllMovMatData({ forceMetadata = false } = {}) {
         const baseUrl = config.datasphere.url;
+        const ticket = await schema.prepare({ base: baseUrl, force: forceMetadata });
 
         if (!baseUrl) {
             throw new Error("Missing DATASPHERE_ODATA_URL in config/env");
@@ -66,6 +69,7 @@ class ODataProvider {
                 // OData V2 devuelve { d: { results: [...] } }
                 // OData V4 devuelve { value: [...] }
                 const results = data.d?.results || data.value || data;
+                schema.validate(results, ticket);
 
                 if (!Array.isArray(results)) {
                     throw new Error("Formato de respuesta OData inesperado (no es un array).");
@@ -87,19 +91,22 @@ class ODataProvider {
                 }
 
             } catch (error) {
+                if (error instanceof SchemaError) throw error;
                 throw transport.sanitize(error);
             }
         }
-        return transport.register(allRecords);
+        return schema.finish(allRecords, ticket);
     }
 
     /**
      * Alias estandarizado para DataProviderFactory
      * @returns {Promise<Array>}
      */
-    async loadData() {
-        return this.fetchAllMovMatData();
+    async loadData(options) {
+        return this.fetchAllMovMatData(options);
     }
+
+    assertSnapshot(rows) { return schema.assertSnapshot(rows); }
 
     /**
      * Ejecuta una consulta OData filtrada y seleccionando campos específicos
@@ -115,6 +122,7 @@ class ODataProvider {
      */
     async executeFilteredQuery({ filter, select, top, orderby, count } = {}) {
         const baseUrl = config.datasphere.url;
+        const ticket = await schema.prepare({ base: baseUrl, filter, select, orderby, count });
 
         if (!baseUrl) {
             throw new Error("Missing DATASPHERE_ODATA_URL in config/env");
@@ -149,9 +157,14 @@ class ODataProvider {
             const data = await transport.read(response);
 
             // Si solicitó count, intentamos extraer la propiedad
-            if (count) return transport.count(data['@odata.count']);
+            if (count) {
+                schema.validate(data.value, ticket);
+                await schema.finish(data.value, ticket, false);
+                return transport.count(data['@odata.count']);
+            }
 
             const results = data.d?.results || data.value || data;
+            schema.validate(results, ticket);
 
             if (!Array.isArray(results)) {
                 throw new Error("Formato de respuesta OData inesperado (no es un array).");
@@ -159,9 +172,10 @@ class ODataProvider {
 
             const normalizedRecords = results.map(row => this.normalizeRecord(row));
 
-            return transport.register(normalizedRecords);
+            return await schema.finish(normalizedRecords, ticket);
 
         } catch (error) {
+            if (error instanceof SchemaError) throw error;
             throw transport.sanitize(error);
         }
     }

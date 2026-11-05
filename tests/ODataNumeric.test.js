@@ -1,4 +1,4 @@
-jest.mock('../src/config/config', () => ({ datasphere: { url: 'https://example.invalid/data' } }));
+jest.mock('../src/config/config', () => ({ datasphere: { url: 'https://example.invalid/api/v1/datasphere/consumption/relational/Space/Asset/Rows' } }));
 jest.mock('../src/services/OAuthService', () => ({ getAccessToken: async () => 'synthetic' }));
 jest.mock('../src/services/GeminiService', () => ({ generateResponse: jest.fn() }));
 jest.mock('../src/services/QueryStrategyResolver', () => ({ resolveStrategy: () => 'ODATA' }));
@@ -8,9 +8,19 @@ const data = require('../src/services/DataService');
 const numeric = require('../src/utils/numeric');
 const format = 'application/json;IEEE754Compatible=true';
 const originalFetch = global.fetch;
-beforeEach(() => { global.fetch = jest.fn(); });
-afterEach(() => { global.fetch = originalFetch; });
+beforeEach(async () => {
+    // Provide a real synthetic structural contract before exercising the existing numeric cases.
+    const fields = { MATERIAL1: 'Edm.Int32', FECHA: 'Edm.Date', ID_CENTRO: 'Edm.String', GRUPO_ARTICULOS: 'Edm.String', CLASE_MOVIMIENTO: 'Edm.String', SUMA_NETA: 'Edm.Int64', OTHER: 'Edm.String' };
+    const xml = '<e:Edmx xmlns:e="http://docs.oasis-open.org/odata/ns/edmx" Version="4.0"><e:DataServices><Schema xmlns="http://docs.oasis-open.org/odata/ns/edm" Namespace="Test"><EntityType Name="Row">' +
+        Object.entries(fields).map(([name, type]) => `<Property Name="${name}" Type="${type}"${['FECHA', 'ID_CENTRO'].includes(name) ? ' Nullable="false"' : ''}/>`).join('') +
+        '</EntityType><EntityContainer Name="Container"><EntitySet Name="Rows" EntityType="Test.Row"/></EntityContainer></Schema></e:DataServices></e:Edmx>';
+    global.fetch = jest.fn().mockResolvedValue(new Response(xml, { headers: { 'Content-Type': 'application/xml' } }));
+    await require('../src/services/ODataMetadataService').get({ force: true });
+    global.fetch = jest.fn();
+});
+afterEach(() => { require('../src/services/ODataMetadataService').clear(); global.fetch = originalFetch; });
 function response(value, type = format) {
+    value = value.map(row => ({ MATERIAL1: 1, FECHA: '2024-01-01', ID_CENTRO: 'TEST', GRUPO_ARTICULOS: 'TEST', CLASE_MOVIMIENTO: 'TEST', OTHER: '1', ...row }));
     global.fetch.mockResolvedValue(new Response(JSON.stringify({ value }), { headers: { 'Content-Type': type } }));
 }
 test.each(['loadData', 'executeFilteredQuery'])('%s negotiates and registers OData', async method => {
@@ -36,6 +46,10 @@ test.each(['-12', '0', '12'])('valid canonical %s', async value => {
 });
 test.each([null, undefined, '', '1,234', '1.0', '1e3', '123bad', '9007199254740993'])('blocks metric %s', async value => {
     response([{ SUMA_NETA: value }]);
+    if (value === undefined) {
+        await expect(provider.executeFilteredQuery()).rejects.toMatchObject({ code: 'SCHEMA_CONTRACT_MISMATCH', details: { reason: 'MISSING_REQUIRED_COLUMN' } });
+        return;
+    }
     const rows = await provider.executeFilteredQuery();
     expect(() => data.sumBy(rows, 'K', 'SUMA_NETA')).toThrow();
 });
