@@ -9,14 +9,14 @@ class QueryEngineService {
      * @param {string} dateKey - YYYY-MM-DD
      */
     countDistinctCentersByDate(rows, dateKey) {
-        coverage.assertAnalytic(rows);
+        coverage.assertAnalytic(rows, { kind: 'DATE', date: dateKey });
         if (!rows || rows.length === 0) {
             return { date: dateKey, distinctCenters: 0, sampleCenters: [] };
         }
 
         // Construir un índice temporal o usar un filtro directo
         // Dado que queremos ser exactos y como un "Motor":
-        const index = IndexService.buildIndexes(rows);
+        const index = IndexService.buildIndexes(rows, { kind: 'DATE', date: dateKey });
         const centersSet = index.centersByDate.get(dateKey);
 
         if (!centersSet) {
@@ -42,7 +42,7 @@ class QueryEngineService {
      * filtrado exclusivamente por FECHA y GRUPO_ARTICULOS.
      */
     sumSumaNetaByGroupAndDate(rows, dateKey, group, opts = {}) {
-        coverage.assertAnalytic(rows);
+        coverage.assertAnalytic(rows, { kind: 'DATE_GROUP', date: dateKey, group });
         const breakdownByCenter = opts.breakdownByCenter !== false; // Default true
         const topN = opts.top || 10;
 
@@ -129,7 +129,7 @@ class QueryEngineService {
         };
     }
     countMovementsByDate(rows, dateKey) {
-        coverage.assertAnalytic(rows);
+        coverage.assertAnalytic(rows, { kind: 'DATE', date: dateKey });
         if (!rows || rows.length === 0) {
             return { date: dateKey, movements: 0, evidence: { sampleRows: [] } };
         }
@@ -177,7 +177,7 @@ class QueryEngineService {
      * @param {number} topN - Cantidad de resultados deseada (def: 5)
      */
     topCentersByMovementsOnDate(rows, dateKey, topN = 5) {
-        coverage.assertAnalytic(rows);
+        coverage.assertAnalytic(rows, { kind: 'DATE', date: dateKey });
         const defaultEmpty = { date: dateKey, topN, results: [], totals: { movements: 0, distinctCenters: 0 } };
 
         if (!rows || rows.length === 0) return defaultEmpty;
@@ -246,7 +246,7 @@ class QueryEngineService {
      * @param {string} to - Fecha final YYYY-MM-DD
      */
     countDistinctCentersByDateRange(rows, from, to) {
-        coverage.assertAnalytic(rows);
+        coverage.assertAnalytic(rows, { kind: 'RANGE', from, to });
         const defaultEmpty = { from, to, distinctCenters: 0 };
 
         if (!rows || rows.length === 0 || !from || !to) return defaultEmpty;

@@ -98,7 +98,11 @@ class DataService {
     async getRowsCached() {
         const CacheService = require("./CacheService");
         const rows = CacheService.get("MOVMAT_DATA");
-        if (rows !== null) { coverage.assertAnalytic(rows); return rows; }
+        if (rows !== null) {
+            if (getDataProvider() === require('../providers/ODataProvider')) coverage.requireComplete(rows, true);
+            else coverage.assertAnalytic(rows);
+            return rows;
+        }
         return this._loadAndPublish(true);
     }
 

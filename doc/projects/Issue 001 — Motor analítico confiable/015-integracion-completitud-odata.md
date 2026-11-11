@@ -160,3 +160,100 @@ git status --short
 7. Revisar a los consumidores del antiguo proxy bruto y el impacto operativo: los totales/insights/cargas completas OData responderán 503 hasta la certificación. SERVER_COUNT y muestras TOP_N satisfechas permanecen disponibles con su alcance explícito.
 
 La integración queda preparada para revisión local. **No se activó completitud del activo real, no se consultó el tenant y no se realizó commit ni push.**
+
+
+## 9. Correcciones de revisión de 4B.2 — 2026-11-11
+
+Base revisada: commit `2b26a5d`; estado inicial de Git limpio. Esta sección sustituye las limitaciones y descripciones anteriores relativas a la aceptación indiscriminada de COMPLETE_FILTERED y al fallback conversacional OData. Sin commit ni push.
+
+### Hallazgos confirmados antes de corregir
+
+1. Una captura completa del filtro de una fecha podía utilizarse para calcular otra fecha y devolver un cero sin fundamento. La guarda comprobaba COMPLETE, pero no el alcance solicitado. MOVMAT_DATA también aceptaba en lectura un snapshot de subconjunto.
+2. Una intención general `unknown` intentaba cargar OData y respondía 503 por falta de certificación, aun cuando solo se necesitaba ayuda sobre capacidades.
+
+Se añadieron primero cinco regresiones: las cinco fallaron antes de modificar la lógica; las 34 pruebas de integración anteriores pasaron. La primera ejecución completa incluyó esas nuevas regresiones mientras se preparaban: **384 casos pasaron y los cinco nuevos fallaron**. No se presenta esa ejecución como un baseline limpio de 384 casos aislados.
+
+### Solución de alcance: contratos cerrados, no equivalencia de filtros
+
+Se añadió `ODataQueryScope.js` con tres descriptores explícitos:
+
+| Descriptor | Filtro generado | Operaciones autorizadas sobre ese subconjunto |
+| --- | --- | --- |
+| `{ kind: 'DATE', date }` | Igualdad de FECHA | Conteo de movimientos, centros distintos y ranking de centros de esa misma fecha. |
+| `{ kind: 'DATE_GROUP', date, group }` | Igualdad de FECHA y GRUPO_ARTICULOS | Suma por esa misma fecha y ese mismo grupo. |
+| `{ kind: 'RANGE', from, to }` | Intervalo inclusivo de FECHA | Centros distintos para esos mismos límites. |
+
+Se validan campos del descriptor, fechas reales ISO, orden del intervalo y grupo textual no vacío. El grupo se escapa al generar el filtro. No se busca un nombre de columna dentro de un texto ni se interpreta un filtro OData libre.
+
+`executeFilteredQuery({ scope, ... })` normaliza y congela el descriptor, **genera el filtro a partir de él**, ejecuta el recorrido y registra el descriptor por identidad del array en un WeakMap privado del provider. No admite proporcionar simultáneamente `scope` y `filter`. No hay una API pública de registro que permita añadir un descriptor a un resultado de un filtro arbitrario; `scopeFor` solo consulta el registro privado. La cobertura general sigue estando en ODataCoverageService.
+
+Las consultas con `filter` libre conservan su lectura cuando existe certificación, pero no adquieren un contrato analítico de subconjunto. Incluso un filtro cuyo texto sea exactamente igual al generado por el contrato queda rechazado para agregaciones si no procede de ese punto de entrada. La distinción es la procedencia del plan, no una comparación de strings de filtro.
+
+`requireComplete(rows)` y `assertAnalytic(rows)` exigen ahora colección completa por defecto. Un consumidor especializado puede pasar un descriptor solicitado. Solo se admiten:
+
+- COMPLETE_COLLECTION, suficiente para las operaciones locales del motor.
+- COMPLETE_FILTERED con descriptor privado acreditado **idéntico en tipo y valores** al solicitado por el consumidor.
+
+La política es deliberadamente conservadora: no se intenta demostrar que un rango amplio contiene otro menor, ni que un filtro DATE puede autorizar DATE_GROUP. Esas capturas se rechazan aunque alguna inclusión pudiera ser válida; el llamador debe solicitar el contrato exacto o una colección completa. Insights mensuales, comparaciones, estadísticas, perfiles y agregadores genéricos necesitan COMPLETE_COLLECTION.
+
+QueryEngineService entrega a la guarda los argumentos reales de cada operación, antes de cualquier retorno por dataset vacío. Su índice de centros por fecha recibe el mismo contrato explícito; los demás usos de IndexService mantienen la exigencia global. Así se rechazan otra fecha, otro grupo o periodo, incluso sobre un array vacío. No se transfieren contrato ni cobertura a slice/filter/copyContext ni clones.
+
+El chat construye únicamente los contratos que sus operaciones implementan. Las comparaciones/insights no cubiertos por estos tres descriptores solicitan colección completa y aplican después sus cálculos locales. Si los slots introducen una restricción de fecha, rango, grupo o centro que la operación no soporta, devuelve INCOMPATIBLE_SCOPE antes de consultar datos, en lugar de descartarla silenciosamente. Un ejemplo es un conteo por fecha con una restricción adicional de centro no implementada.
+
+### Caché y consumidores globales
+
+`DataService.getRowsCached` exige explícitamente `requireComplete(rows, true)` cuando la fuente activa es OData. Un snapshot COMPLETE_FILTERED o un array arbitrario sin cobertura se rechaza en lectura; una colección acreditada sigue siendo válida. No se modifica la entrada, el TTL ni los derivados al rechazarla. Las cargas ya exigían colección completa antes de publicar y mantienen esa protección.
+
+La restricción de alcance produce ODATA_COMPLETENESS_ERROR, HTTP 503, con INCOMPLETE_SCOPE o INCOMPATIBLE_SCOPE según corresponda. Los detalles no incluyen filtros, fechas, grupos, URLs, claves ni registros. No se alteran los códigos estructurales, el perfil Int64 ni la consistencia temporal UNVERIFIED.
+
+### Conversación general sin consulta de datos
+
+ChatController distingue las intenciones analíticas soportadas antes de invocar al provider. Conserva el retorno temprano de aclaraciones y la modalidad SERVER_COUNT. Normaliza los alias analíticos ya reconocidos por el query builder.
+
+En estrategia ODATA, una intención general/no soportada recibe una respuesta determinista de ayuda: indica las operaciones disponibles y pide operación/periodo/grupo cuando proceda. No consulta Datasphere ni llama a `GeminiService.generateResponse` para redactar cifras. El router puede seguir usando su modelo para clasificar la intención; no recibe un dataset OData en ese paso.
+
+Esto también evita que una pregunta numérica clasificada como unknown se derive a una respuesta numérica improvisada: recibe ayuda sin cifras de negocio. Una intención numérica soportada conserva el bloqueo 503 cuando no hay certificación. Esta política no cambia el flujo CSV ni su fallback conversacional.
+
+### Archivos de esta corrección
+
+- `src/services/ODataQueryScope.js`: nuevo contrato cerrado y generador de filtro.
+- `src/providers/ODataProvider.js`: ejecución desde scope y registro privado del alcance.
+- `src/services/ODataCoverageService.js`: colección por defecto y correspondencia explícita del subconjunto.
+- `src/services/QueryEngineService.js`, `src/services/IndexService.js`: alcance requerido derivado de los argumentos de la operación.
+- `src/services/DataService.js`: exigencia global en lectura de MOVMAT_DATA con fuente OData.
+- `src/controllers/ChatController.js`: separación de conversación/analítica y planes explícitos.
+- `tests/ODataCompleteness.test.js`: 13 regresiones nuevas, además de conservar sus 34 casos anteriores.
+- `tests/ProviderLifecycle.test.js`: expectativa intencional de caché descrita abajo.
+- Este documento: evidencia y decisiones de revisión.
+
+No se modificaron capacidades, CSDL, metadata, transporte JSON, paginación, perfiles numéricos, dependencias ni configuración privada. No se consultó SAP.
+
+### Pruebas y cambio intencional de expectativa
+
+Resultados reales:
+
+| Momento | Resultado |
+| --- | --- |
+| Regresiones iniciales antes de la corrección | 5 fallos nuevos, 34 casos anteriores aprobados en la suite de integración. |
+| Primera suite completa con esas regresiones | 384 aprobadas, 5 fallidas. |
+| Guardas de alcance iniciales | 388 aprobadas y un fallo en el antiguo fixture de caché sin contexto. |
+| Contratos y adaptación de ese fixture | 394/394 aprobadas. |
+| Verificación final, incluidas tres regresiones adicionales | **397/397 pruebas, 15 suites; 21,882 s.** |
+
+Se conservan los 384 casos previos. El único cambio intencional de expectativa está en ProviderLifecycle: su provider mock devuelve un array sin contexto, y antes se aceptaba leerlo desde caché bajo DATA_SOURCE=ODATA. Ahora esa lectura debe rechazarse. Se conserva la comprobación de selección del provider asíncrono y de su número de llamadas; la nueva prueba de colección completa acredita el caso positivo con el provider y contratos reales sobre respuestas sintéticas. No se relajó la guarda productiva para permitir el fixture anterior.
+
+Las 13 regresiones cubren fecha distinta, grupo distinto y alcance ampliado incompatible; contrato exacto válido; rango diferente; filtro libre aun con texto coincidente; prohibición de combinar scope y filter; copia defensiva del descriptor; colección/subconjunto en MOVMAT_DATA; preguntas generales, aclaraciones y unknown numérico sin datos; snapshot vacío; copyContext sin transferencia de alcance; y restricciones de centro no soportadas. Los casos anteriores siguen cubriendo preguntas numéricas con HTTP 503, SERVER_COUNT, consistencia temporal, caché y rutas CSV.
+
+Comando final ejecutado:
+
+```powershell
+node node_modules/jest/bin/jest.js --runInBand --silent --cache=false
+```
+
+También se revisaron el diff, `git diff --check` y la sintaxis de los archivos nuevos/modificados relevantes. Sin cambios ajenos al alcance.
+
+### Pendientes para activación
+
+La continuación real permanece deshabilitada. Los contratos de alcance acreditan qué consulta se ejecutó; no certifican por sí solos que SAP implemente correctamente la continuación, evalúe sus filtros o proporcione consistencia transaccional. Se conserva la política de activación revisada anteriormente.
+
+Si se requieren filtros adicionales por centro, combinaciones de dimensiones o inclusiones entre periodos, deberán añadirse contratos explícitos con su generación y sus pruebas. No ampliar mediante coincidencias de texto ni activar offset. Los arrays genéricos/legados siguen sin adquirir cobertura por semejanza y los puntos de entrada OData continúan exigiendo registro.

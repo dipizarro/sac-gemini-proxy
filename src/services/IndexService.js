@@ -8,8 +8,8 @@ class IndexService {
      * @param {Array} rows - Conjunto de datos completo
      * @returns {Map<string, Set<string>>} Map<DateString, Set<CenterID>>
      */
-    buildIndexes(rows) {
-        coverage.assertAnalytic(rows);
+    buildIndexes(rows, scope = true) {
+        coverage.assertAnalytic(rows, scope);
         // Map<DateKey, Set<CenterID>>
         const centersByDate = new Map();
 

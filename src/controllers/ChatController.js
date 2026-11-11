@@ -35,19 +35,38 @@ class ChatController {
                 });
             }
 
-            // 3.5. Si la estrategia es ODATA, resolvemos los rows dinámicamente con QueryBuilder
-            if (strategy === "ODATA" && !route.needs_clarification) {
-                const DatasphereQueryBuilder = require("../services/DatasphereQueryBuilder");
-                const ODataProvider = require("../providers/ODataProvider");
-
-                const filter = DatasphereQueryBuilder.buildFilterFromSlots(route.slots);
-                const select = DatasphereQueryBuilder.buildSelectForIntent(route.intent);
-                const isSimpleCount = route.intent === "count_movements_by_date" || route.intent === "COUNT_MOVEMENTS_DATE";
-
-                rows = await ODataProvider.executeFilteredQuery({ filter, select, count: isSimpleCount });
+            const aliases = { COUNT_MOVEMENTS_DATE: 'count_movements_by_date', SUMA_NETA_GROUP_DATE: 'sum_suma_neta_by_group_and_date', TOP_CENTERS_BY_MOVEMENTS: 'top_centers_by_movements_on_date', COUNT_DISTINCT_CENTERS_DATE: 'count_distinct_centers_by_date' };
+            const analyticalIntents = new Set(['count_distinct_centers_by_date', 'count_movements_by_date',
+                'top_centers_by_movements_on_date', 'count_distinct_centers_by_date_range', 'sum_suma_neta_by_group_and_date',
+                'compare_activity_by_months', 'patterns_in_quarter', 'max_active_centers_day', 'prioritize_centers_over_period',
+                'diff_distinct_centers_between_months', 'compare_suma_neta_between_months', 'distinct_centers_by_group_between_months',
+                'materials_without_movements_feb_vs_jan', 'compare_total_volume_between_months']);
+            let operationScope = true;
+            if (strategy === 'ODATA') {
+                route.intent = aliases[route.intent] || route.intent;
+                if (!analyticalIntents.has(route.intent)) {
+                    // No numeric fallback through the language model for an unsupported intent.
+                    return res.json({ reply: 'Puedo ayudarte a consultar movimientos, centros, sumas y comparaciones por periodo. Indica la operación, fecha o periodo y, si corresponde, el grupo. Las consultas numéricas requieren datos con cobertura acreditada.',
+                        meta: { engine: 'help', intent: route.intent } });
+                }
+                const slots = route.slots || {};
+                if (route.intent === 'sum_suma_neta_by_group_and_date') operationScope = { kind: 'DATE_GROUP', date: slots.date, group: slots.group };
+                else if (['count_distinct_centers_by_date', 'count_movements_by_date', 'top_centers_by_movements_on_date'].includes(route.intent)) operationScope = { kind: 'DATE', date: slots.date };
+                else if (route.intent === 'count_distinct_centers_by_date_range') operationScope = { kind: 'RANGE', from: slots.from, to: slots.to };
+                const acceptedRestrictions = operationScope === true
+                    ? (route.intent === 'distinct_centers_by_group_between_months' ? ['group'] : [])
+                    : Object.keys(operationScope);
+                if (['date', 'from', 'to', 'group', 'center'].some(key => slots[key] !== undefined && slots[key] !== null && slots[key] !== '' && !acceptedRestrictions.includes(key))) {
+                    throw new (require('../services/ODataPaginationService').PaginationError)('INCOMPATIBLE_SCOPE', true);
+                }
+                // Period comparisons and generic insights conservatively require the collection.
+                const select = require('../services/DatasphereQueryBuilder').buildSelectForIntent(route.intent);
+                const count = route.intent === 'count_movements_by_date';
+                rows = await require('../providers/ODataProvider').executeFilteredQuery({ select, count,
+                    ...(operationScope === true ? {} : { scope: operationScope }) });
+                if (Array.isArray(rows)) require('../services/ODataCoverageService').requireComplete(rows, operationScope);
             }
 
-            if (strategy === 'ODATA' && Array.isArray(rows)) require('../services/ODataCoverageService').requireComplete(rows);
             const analyticalMeta = strategy === 'ODATA'
                 ? { exact: false, temporalConsistency: 'UNVERIFIED', ...(typeof rows === 'number' ? { countBasis: 'SERVER_REPORTED' } : { coverage: 'COMPLETE' }) }
                 : { exact: true };

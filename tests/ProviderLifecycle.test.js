@@ -26,11 +26,11 @@ test.each([
     expect(await data.getRowsCached()).toBe(rows);
 });
 
-test('real factory selects asynchronous OData provider without accessing the network', async () => {
+test('real factory selects asynchronous OData provider but cannot trust an unregistered cached array', async () => {
     process.env.DATA_SOURCE = 'ODATA';
     const rows = [{ FECHA: '2025-01-01', ID_CENTRO: 'B', SUMA_NETA: 25 }];
     odata.loadData.mockResolvedValue(rows);
     expect(await data.reloadRows()).toBe(rows);
-    expect(await data.getRowsCached()).toBe(rows);
+    await expect(data.getRowsCached()).rejects.toMatchObject({ code: 'ODATA_COMPLETENESS_ERROR' });
     expect(odata.loadData).toHaveBeenCalledTimes(1);
 });
