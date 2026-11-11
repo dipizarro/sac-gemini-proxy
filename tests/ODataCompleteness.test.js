@@ -28,6 +28,13 @@ beforeEach(() => {
 });
 afterEach(() => { metadata.clear(); data.clearCache(); jest.restoreAllMocks(); jest.clearAllMocks(); global.fetch = originalFetch; if (originalSource === undefined) delete process.env.DATA_SOURCE; else process.env.DATA_SOURCE = originalSource; });
 function certifySynthetic() { jest.spyOn(require('../src/services/ODataCapabilities'), 'forConfiguredAsset').mockReturnValue({ continuationSupported: true, serverCount: true }); }
+test('4C: comparison without continuation certification returns 503 before Gemini or data requests', async () => {
+    require('../src/services/IntentRouterService').route.mockResolvedValue({ intent: 'compare_total_volume_between_months', slots: { year: 2024, months: [1, 2] } });
+    const result = await chat();
+    expect(result.status).toBe(503); expect(result.body.details.reason).toBe('CONTINUATION_UNCERTIFIED');
+    expect(fetch).not.toHaveBeenCalled();
+    expect(require('../src/services/GeminiService').generateResponse).not.toHaveBeenCalled();
+});
 test('opaque date filter cannot certify another date', async () => {
     certifySynthetic(); const rows = await provider.executeFilteredQuery({ filter: 'FECHA eq 2024-01-01' });
     expect(() => query.countMovementsByDate(rows, '2024-01-02')).toThrow();
