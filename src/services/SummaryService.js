@@ -1,3 +1,4 @@
+const coverage = require('./ODataCoverageService');
 const DataService = require("./DataService");
 const numeric = require("../utils/numeric");
 
@@ -9,6 +10,7 @@ class SummaryService {
      * @returns {Object} Objeto de resumen enriquecido
      */
     buildRichSummary(rows) {
+        coverage.assertAnalytic(rows);
         if (!rows || rows.length === 0) return { error: "No data" };
 
         const summary = {

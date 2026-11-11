@@ -1,3 +1,5 @@
+// Only this synthetic service is certified; production remains disabled.
+jest.mock('../src/services/ODataCapabilities', () => ({ forConfiguredAsset: () => ({ continuationSupported: true, serverCount: true }) }));
 jest.mock('../src/config/config', () => ({ datasphere: { url: 'https://example.invalid/api/v1/datasphere/consumption/relational/Space/Asset/Rows', exportUrl: 'https://unused.invalid' } }));
 jest.mock('../src/services/OAuthService', () => ({ getAccessToken: jest.fn(async () => 'synthetic') }));
 jest.mock('../src/services/ExportService', () => ({ exportToCsvBuffer: jest.fn() }));
@@ -36,12 +38,16 @@ afterEach(() => {
     if (originalSource === undefined) delete process.env.DATA_SOURCE; else process.env.DATA_SOURCE = originalSource;
 });
 
-const unvalidatedOData = { code: 'SCHEMA_CONTRACT_MISMATCH', details: expect.objectContaining({ source: 'ODATA', reason: 'UNVALIDATED_SNAPSHOT' }) };
-test.each(['slice', 'filter'])('unregistered OData %s blocks metrics but preserves counts', async method => {
+const unvalidatedOData = { code: 'ODATA_COMPLETENESS_ERROR', details: expect.objectContaining({ source: 'ODATA', reason: 'UNVALIDATED_COVERAGE' }) };
+// These parser-level checks retain the prior numeric contract independently of coverage.
+const strictSum = rows => ({ A: rows.reduce((sum, row) => numeric.add(rows, sum, numeric.readMetric(rows, row, 'SUMA_NETA')), 0) });
+test.each(['slice', 'filter'])('unregistered OData %s blocks aggregates without coverage; original counts remain independent of metrics', async method => {
     const rows = await provider.loadData();
     const copy = method === 'slice' ? rows.slice() : rows.filter(() => true);
     expect(() => data.sumBy(copy, 'ID_CENTRO', 'SUMA_NETA')).toThrow(expect.objectContaining(unvalidatedOData));
-    expect(data.countBy(copy, 'ID_CENTRO')).toEqual({ A: 1 });
+    expect(() => data.countBy(copy, 'ID_CENTRO')).toThrow(expect.objectContaining(unvalidatedOData));
+    expect(data.countBy(rows, 'ID_CENTRO')).toEqual({ A: 1 });
+    expect(() => numeric.readMetric(copy, copy[0], 'SUMA_NETA')).toThrow(expect.objectContaining({ code: 'SCHEMA_CONTRACT_MISMATCH' }));
 });
 test.each(['9007199254740993', '12bad'])('copied OData never delegates %s to legacy conversion', async value => {
     pages = [{ value: [{ ...row(), SUMA_NETA: value }] }];
@@ -49,14 +55,14 @@ test.each(['9007199254740993', '12bad'])('copied OData never delegates %s to leg
     expect(() => data.sumBy(rows.slice(), 'ID_CENTRO', 'SUMA_NETA')).toThrow(expect.objectContaining(unvalidatedOData));
     expect(() => data.sumBy(rows, 'ID_CENTRO', 'SUMA_NETA')).toThrow(expect.objectContaining({ code: 'DATA_QUALITY_ERROR' }));
     const authorized = schema().copyContext(rows, rows.slice());
-    expect(() => data.sumBy(authorized, 'ID_CENTRO', 'SUMA_NETA')).toThrow(expect.objectContaining({ code: 'DATA_QUALITY_ERROR' }));
+    expect(() => strictSum(authorized)).toThrow(expect.objectContaining({ code: 'DATA_QUALITY_ERROR' }));
 });
 test('explicit OData copy has numeric parity and rejects arbitrary cloned rows', async () => {
     pages = [{ value: [row(), { ...row(), SUMA_NETA: '-3' }, { ...row(), SUMA_NETA: '0' }] }];
     const rows = await provider.loadData();
     const authorized = schema().copyContext(rows, rows.filter(() => true));
-    expect(data.sumBy(authorized, 'ID_CENTRO', 'SUMA_NETA')).toEqual({ A: 7 });
-    expect(data.sumBy(authorized, 'ID_CENTRO', 'SUMA_NETA')).toEqual(data.sumBy(rows, 'ID_CENTRO', 'SUMA_NETA'));
+    expect(strictSum(authorized)).toEqual({ A: 7 });
+    expect(strictSum(authorized)).toEqual(data.sumBy(rows, 'ID_CENTRO', 'SUMA_NETA'));
     const clones = rows.map(r => ({ ...r }));
     expect(() => schema().copyContext(rows, clones)).toThrow();
     expect(numeric.isStrict(clones)).toBe(false);
@@ -70,7 +76,7 @@ test('mixed and mutated arrays cannot hide known OData identities after an earli
     const changing = [foreign];
     expect(numeric.readMetric(changing, foreign, 'SUMA_NETA')).toBe(1);
     changing[0] = rows[0]; // Same length: no cached array classification may hide this mutation.
-    expect(() => numeric.readMetric(changing, changing[0], 'SUMA_NETA')).toThrow(expect.objectContaining(unvalidatedOData));
+    expect(() => numeric.readMetric(changing, changing[0], 'SUMA_NETA')).toThrow(expect.objectContaining({ code: 'SCHEMA_CONTRACT_MISMATCH', details: expect.objectContaining({ reason: 'UNVALIDATED_SNAPSHOT' }) }));
     changing[0] = foreign;
     expect(numeric.readMetric(changing, foreign, 'SUMA_NETA')).toBe(1);
     changing.push(rows[0]);
@@ -95,7 +101,7 @@ test('thousands of reads remain linear without scanning arrays for each metric',
     const copied = track(rows.slice());
     schema().copyContext(rows, copied.array);
     const before = copied.count();
-    expect(data.sumBy(copied.array, 'ID_CENTRO', 'SUMA_NETA')).toEqual({ A: size * 10 });
+    expect(strictSum(copied.array)).toEqual({ A: size * 10 });
     expect(copied.count() - before).toBeLessThan(size * 3);
     const unregistered = track(rows.slice());
     expect(() => data.sumBy(unregistered.array, 'ID_CENTRO', 'SUMA_NETA')).toThrow(expect.objectContaining(unvalidatedOData));
@@ -108,7 +114,7 @@ test('unregistered-copy failure preserves the existing safe HTTP error contract'
     expect(error).toMatchObject(unvalidatedOData);
     const response = { status: jest.fn().mockReturnThis(), json: jest.fn() };
     require('../src/middlewares/errorHandler')(error, {}, response, jest.fn());
-    expect(response.status).toHaveBeenCalledWith(502);
+    expect(response.status).toHaveBeenCalledWith(503);
     expect(response.json.mock.calls[0][0]).toMatchObject({ success: false, ...unvalidatedOData });
     expect(response.json.mock.calls[0][0].stack).toBeUndefined();
 });
@@ -156,7 +162,7 @@ test('a compatible forced refresh publishes new data and invalidates both deriva
 });
 test('a newer schema discovered between pages prevents old-generation publication', async () => {
     const original = fetch.getMockImplementation();
-    provider.pageSize = 1; pages = [{ value: [row()] }, { value: [] }];
+    pages = [{ value: [row()], '@odata.nextLink': '?cursor=1' }, { value: [] }];
     fetch.mockImplementation(async (url, options) => {
         const response = await original(url, options);
         if (!new URL(url).pathname.endsWith('/$metadata') && dataCalls === 1) {
@@ -191,7 +197,7 @@ test('normalization collisions are rejected, nullable metric still allows counts
 test('a copied snapshot retains strict quality and rejects changed row types', async () => {
     const rows = await provider.loadData(); const copied = schema().copyContext(rows, rows.slice());
     rows[0].SUMA_NETA = 'bad';
-    expect(() => data.sumBy(copied, 'ID_CENTRO', 'SUMA_NETA')).toThrow(expect.objectContaining({ code: 'DATA_QUALITY_ERROR' }));
+    expect(() => strictSum(copied)).toThrow(expect.objectContaining({ code: 'DATA_QUALITY_ERROR' }));
     rows[0].ID_CENTRO = 5;
     expect(() => provider.assertSnapshot(rows)).toThrow(expect.objectContaining({ details: expect.objectContaining({ reason: 'PAYLOAD_TYPE_MISMATCH' }) }));
 });
@@ -291,7 +297,7 @@ test.each([
     await expect(provider.loadData()).rejects.toMatchObject({ code: 'SCHEMA_CONTRACT_MISMATCH', details: { reason } });
 });
 test('inconsistent page cannot publish a partial dataset', async () => {
-    provider.pageSize = 1; pages = [{ value: [row()] }, { value: [{ SUMA_NETA: '2' }] }];
+    pages = [{ value: [row()], '@odata.nextLink': '?cursor=1' }, { value: [{ SUMA_NETA: '2' }] }];
     await expect(data.getRowsCached()).rejects.toMatchObject({ code: 'SCHEMA_CONTRACT_MISMATCH' });
     expect(cache.get('MOVMAT_DATA')).toBeNull(); expect(dataCalls).toBe(2);
 });

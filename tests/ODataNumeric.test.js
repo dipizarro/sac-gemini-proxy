@@ -1,3 +1,5 @@
+// Only this synthetic service is certified; production remains disabled.
+jest.mock('../src/services/ODataCapabilities', () => ({ forConfiguredAsset: () => ({ continuationSupported: true, serverCount: true }) }));
 jest.mock('../src/config/config', () => ({ datasphere: { url: 'https://example.invalid/api/v1/datasphere/consumption/relational/Space/Asset/Rows' } }));
 jest.mock('../src/services/OAuthService', () => ({ getAccessToken: async () => 'synthetic' }));
 jest.mock('../src/services/GeminiService', () => ({ generateResponse: jest.fn() }));

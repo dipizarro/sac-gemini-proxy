@@ -1,8 +1,8 @@
 const transport = require('./ODataTransport');
-const odataSchema = require('./ODataSchemaService');
+const coverage = require('./ODataCoverageService');
+const { PaginationError } = require('./ODataPaginationService');
 const ODataSchemaError = require('./ODataSchemaError');
 const numeric = require("../utils/numeric");
-const OAuthService = require("./OAuthService");
 const config = require("../config/config");
 const { getDataProvider } = require("../providers/DataProviderFactory");
 
@@ -13,6 +13,7 @@ class DataService {
     }
 
     sumBy(rows, key, valueKey) {
+        coverage.assertAnalytic(rows);
         return rows.reduce((acc, r) => {
             const k = (r[key] ?? "SIN_DATO").toString().trim() || "SIN_DATO";
             const v = numeric.readMetric(rows, r, valueKey);
@@ -22,6 +23,7 @@ class DataService {
     }
 
     countBy(rows, key) {
+        coverage.assertAnalytic(rows);
         return rows.reduce((acc, r) => {
             const k = (r[key] ?? "SIN_DATO").toString().trim() || "SIN_DATO";
             acc[k] = (acc[k] || 0) + 1;
@@ -39,6 +41,8 @@ class DataService {
         try {
             const provider = getDataProvider();
             const rows = await provider.loadData();
+            if (provider === require('../providers/ODataProvider')) provider.assertSnapshot(rows);
+            coverage.assertAnalytic(rows);
 
             // CSV registrado no admite sustitutos de la métrica canónica.
             const SUM_KEY = numeric.isCsv(rows) || (rows.length > 0 && typeof rows[0]["SUMA_NETA"] !== "undefined") ? "SUMA_NETA" : "COL_8";
@@ -52,6 +56,7 @@ class DataService {
 
             return `
           Contexto del reporte (CSV MovMat):
+          ${coverage.get(rows) ? 'Origen OData: recorrido completo para la consulta; consistencia temporal no verificada. No afirmar exactitud transaccional.' : ''}
           - Top 5 ID_CENTRO por suma (${SUM_KEY}):
           ${JSON.stringify(topCentros, null, 2)}
           - Top 5 CLASE_MOVIMIENTO por frecuencia:
@@ -66,9 +71,11 @@ class DataService {
           - Si falta un filtro (fecha/centro/clase), pregunta cuál necesita.
           `;
         } catch (e) {
+            if (e instanceof PaginationError) throw e;
             if (e instanceof ODataSchemaError || e instanceof transport.ODataTransportError) throw e;
             if (e instanceof require('./CsvSchemaService').SchemaError) throw e;
             if (e instanceof numeric.DataQualityError) throw e;
+            if (getDataProvider() === require('../providers/ODataProvider')) throw transport.sanitize(e);
             return `Contexto CSV no disponible (error leyendo archivo): ${e.message}`;
         }
     }
@@ -82,60 +89,16 @@ class DataService {
      * @returns {Promise<Object>} Respuesta JSON de Datasphere
      */
     async fetchMovMat({ top = 50, select, filter } = {}) {
-        const ticket = await odataSchema.prepare({ base: config.datasphere.url, select, filter });
-        let token;
-        try { token = await OAuthService.getAccessToken(); } catch (error) { throw transport.sanitize(error); }
-        const baseUrl = config.datasphere.url;
-
-        if (!baseUrl) {
-            throw new Error("Missing DATASPHERE_ODATA_URL in config");
-        }
-
-        const params = new URLSearchParams();
-
-        // $top
-        if (top) params.append("$top", top);
-
-        // $select
-        if (select) {
-            const selectVal = Array.isArray(select) ? select.join(",") : select;
-            params.append("$select", selectVal);
-        }
-
-        // $filter
-        if (filter) {
-            params.append("$filter", filter);
-        }
-
-        // $format
-        params.append("$format", transport.FORMAT);
-
-        const url = `${baseUrl}?${params.toString()}`;
-
-        try {
-            const response = await fetch(url, {
-                method: "GET",
-                headers: {
-                    "Authorization": `Bearer ${token}`,
-                    "Accept": transport.FORMAT
-                }
-            });
-
-            const result = await transport.read(response);
-            odataSchema.validate(result.value, ticket);
-            await odataSchema.finish(result.value, ticket, false);
-            return result;
-        } catch (error) {
-            if (error instanceof ODataSchemaError) throw error;
-            // Re-lanzar error (OAuthService ya maneja sus errores, aquí manejamos el fetch de datos)
-            throw transport.sanitize(error);
-        }
+        const mode = top === null ? (filter ? 'COMPLETE_FILTERED' : 'COMPLETE_COLLECTION') : 'TOP_N';
+        const result = await require('../providers/ODataProvider').traverse({ mode, select, filter, ...(mode === 'TOP_N' ? { top } : {}) });
+        return { value: result.rows, ...(result.coverage.count.available ? { '@odata.count': result.coverage.count.value.toString() } : {}),
+            coverage: { status: result.coverage.status, mode: result.coverage.mode, temporalConsistency: result.coverage.temporalConsistency } };
     }
     /** Devuelve el snapshot vigente o comparte la carga en curso. */
     async getRowsCached() {
         const CacheService = require("./CacheService");
         const rows = CacheService.get("MOVMAT_DATA");
-        if (rows !== null) return rows;
+        if (rows !== null) { coverage.assertAnalytic(rows); return rows; }
         return this._loadAndPublish(true);
     }
 
@@ -178,7 +141,8 @@ class DataService {
             if (typeof provider.assertSnapshot === 'function') provider.assertSnapshot(rows);
             return { rows, ttl: 24 * 60 * 60 * 1000 };
         } catch (err) {
-            if (err instanceof ODataSchemaError || err instanceof require('./CsvSchemaService').SchemaError || err instanceof transport.ODataTransportError || !allowFallback || !config.datasphere.exportUrl) throw err;
+            if (err instanceof PaginationError || err instanceof ODataSchemaError || err instanceof require('./CsvSchemaService').SchemaError || err instanceof transport.ODataTransportError || !allowFallback || !config.datasphere.exportUrl) throw err;
+            if (getDataProvider() === require('../providers/ODataProvider')) throw transport.sanitize(err);
             const ExportService = require("./ExportService");
             const { parse } = require("csv-parse/sync");
             const { normalizeHeader } = require("../utils/helpers");

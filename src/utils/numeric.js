@@ -30,6 +30,8 @@ function registerSource(rows, source, profiles = {}) {
     return rows;
 }
 function isStrict(rows) { return csvProfiles.has(rows); }
+// One scan per analytic operation, never per metric. Copies retain row provenance.
+function hasODataOrigin(rows) { return sources.get(rows) === 'ODATA' || (Array.isArray(rows) && rows.some(row => odataRows.has(row))); }
 function qualityError(rows, reason, status) { return new DataQualityError(reason, status, sources.get(rows)); }
 
 function registerCsv(rows, profiles) {
@@ -95,4 +97,4 @@ function checkedInteger(rows, value) {
 function add(rows, a, b) { return checkedInteger(rows, a + b); }
 function difference(rows, a, b) { return checkedInteger(rows, Math.abs(a - b)); }
 
-module.exports = { registerValidatedCsv, assertCsvContext, copyCsvContext, registerSource, isStrict, qualityError, parseMetric, registerCsv, isCsv, readMetric, add, difference, DataQualityError };
+module.exports = { hasODataOrigin, registerValidatedCsv, assertCsvContext, copyCsvContext, registerSource, isStrict, qualityError, parseMetric, registerCsv, isCsv, readMetric, add, difference, DataQualityError };

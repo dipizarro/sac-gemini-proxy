@@ -1,3 +1,4 @@
+const coverage = require('./ODataCoverageService');
 const IndexService = require("./IndexService");
 const CacheService = require("./CacheService");
 
@@ -9,6 +10,7 @@ class DatasetProfileService {
      * periodos por defecto cuando el usuario no provee fechas explícitas.
      */
     getDatasetProfile(rows) {
+        coverage.assertAnalytic(rows);
         if (!rows || rows.length === 0) {
             return {
                 minDate: null,

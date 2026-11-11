@@ -1,3 +1,4 @@
+const coverage = require('./ODataCoverageService');
 const IndexService = require("./IndexService");
 const numeric = require("../utils/numeric");
 
@@ -8,6 +9,7 @@ class QueryEngineService {
      * @param {string} dateKey - YYYY-MM-DD
      */
     countDistinctCentersByDate(rows, dateKey) {
+        coverage.assertAnalytic(rows);
         if (!rows || rows.length === 0) {
             return { date: dateKey, distinctCenters: 0, sampleCenters: [] };
         }
@@ -40,6 +42,7 @@ class QueryEngineService {
      * filtrado exclusivamente por FECHA y GRUPO_ARTICULOS.
      */
     sumSumaNetaByGroupAndDate(rows, dateKey, group, opts = {}) {
+        coverage.assertAnalytic(rows);
         const breakdownByCenter = opts.breakdownByCenter !== false; // Default true
         const topN = opts.top || 10;
 
@@ -126,6 +129,7 @@ class QueryEngineService {
         };
     }
     countMovementsByDate(rows, dateKey) {
+        coverage.assertAnalytic(rows);
         if (!rows || rows.length === 0) {
             return { date: dateKey, movements: 0, evidence: { sampleRows: [] } };
         }
@@ -173,6 +177,7 @@ class QueryEngineService {
      * @param {number} topN - Cantidad de resultados deseada (def: 5)
      */
     topCentersByMovementsOnDate(rows, dateKey, topN = 5) {
+        coverage.assertAnalytic(rows);
         const defaultEmpty = { date: dateKey, topN, results: [], totals: { movements: 0, distinctCenters: 0 } };
 
         if (!rows || rows.length === 0) return defaultEmpty;
@@ -241,6 +246,7 @@ class QueryEngineService {
      * @param {string} to - Fecha final YYYY-MM-DD
      */
     countDistinctCentersByDateRange(rows, from, to) {
+        coverage.assertAnalytic(rows);
         const defaultEmpty = { from, to, distinctCenters: 0 };
 
         if (!rows || rows.length === 0 || !from || !to) return defaultEmpty;

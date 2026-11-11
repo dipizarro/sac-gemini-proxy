@@ -24,6 +24,11 @@ afterEach(() => { metadata.clear(); global.fetch = originalFetch; jest.restoreAl
 const run = options => require('../src/services/ODataPaginationService').traverse({ mode: 'COMPLETE_COLLECTION', select: ['SUMA_NETA'], continuationSupported: true, ...options });
 const failure = reason => expect.objectContaining({ details: expect.objectContaining({ reason }) });
 
+test.each([null, [], 7, { mode: 'COMPLETE_COLLECTION', unknown: true }, { mode: 'TOP_N', top: 1, skip: 5 }])('rejects unsupported options with sanitized PaginationError', async options => {
+    await expect(require('../src/services/ODataPaginationService').traverse(options)).rejects.toMatchObject({ code: 'ODATA_COMPLETENESS_ERROR', details: { reason: 'INVALID_OPTIONS' } });
+    expect(global.fetch).not.toHaveBeenCalled();
+});
+
 test('short pages follow opaque relative links; preserve strict context and multiplicity', async () => {
     const token = '?$skiptoken=A%2Bb%2F%3D&custom=x+z';
     pages = [{ value: [row()], '@odata.nextLink': token, '@odata.count': '3' }, { value: [], '@odata.nextLink': '?cursor=2' }, { value: [row(), row()] }];

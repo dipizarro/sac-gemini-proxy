@@ -1,6 +1,5 @@
 const DataService = require("../services/DataService");
 const GeminiService = require("../services/GeminiService");
-const config = require("../config/config");
 
 class ChatController {
     async handleChat(req, res, next) {
@@ -24,7 +23,6 @@ class ChatController {
 
             // 2. Extraer intención usando Router (en modo ODATA pasamos array vacío)
             const route = await IntentRouterService.route(message, rows);
-            console.log("IntentRouter Result:", route);
             // 3. Si falta información crucial, preguntar al usuario
             if (route.needs_clarification) {
                 return res.json({
@@ -49,6 +47,11 @@ class ChatController {
                 rows = await ODataProvider.executeFilteredQuery({ filter, select, count: isSimpleCount });
             }
 
+            if (strategy === 'ODATA' && Array.isArray(rows)) require('../services/ODataCoverageService').requireComplete(rows);
+            const analyticalMeta = strategy === 'ODATA'
+                ? { exact: false, temporalConsistency: 'UNVERIFIED', ...(typeof rows === 'number' ? { countBasis: 'SERVER_REPORTED' } : { coverage: 'COMPLETE' }) }
+                : { exact: true };
+
             // 4. Si es una consulta exacta soportada, usar Query Engine
             if (route.intent === "count_distinct_centers_by_date") {
                 const dateKey = route.slots.date;
@@ -58,7 +61,7 @@ class ChatController {
                     reply: `El ${result.date}, ${result.distinctCenters} centros tuvieron movimientos registrados.`,
                     meta: {
                         engine: "query",
-                        exact: true,
+                        ...analyticalMeta,
                         intent: route.intent,
                         date: result.date
                     },
@@ -82,10 +85,10 @@ class ChatController {
                 }
 
                 return res.json({
-                    reply: `El ${result.date}, se registraron ${result.movements} movimientos.`,
+                    reply: strategy === 'ODATA' ? `El servicio reportó ${result.movements} movimientos para el ${result.date}.` : `El ${result.date}, se registraron ${result.movements} movimientos.`,
                     meta: {
                         engine: "query",
-                        exact: true,
+                        ...analyticalMeta,
                         intent: route.intent,
                         date: result.date
                     },
@@ -108,7 +111,7 @@ class ChatController {
                     reply: reply.trim(),
                     meta: {
                         engine: "query",
-                        exact: true,
+                        ...analyticalMeta,
                         intent: route.intent,
                         date: result.date,
                         topN: result.topN
@@ -127,7 +130,7 @@ class ChatController {
                     reply: `Entre el ${result.from} y el ${result.to}, ${result.distinctCenters} centros tuvieron movimientos registrados.`,
                     meta: {
                         engine: "query",
-                        exact: true,
+                        ...analyticalMeta,
                         intent: route.intent,
                         from: result.from,
                         to: result.to
@@ -153,7 +156,7 @@ class ChatController {
                     reply: `El ${result.date}, el grupo "${result.group}" sumó **${formatNum(result.totalSumaNeta)}** en volumen (centros operando: ${result.distinctCenters}).`,
                     meta: {
                         engine: "query",
-                        exact: true,
+                        ...analyticalMeta,
                         intent: route.intent,
                         date: result.date,
                         group: result.group
@@ -208,7 +211,7 @@ class ChatController {
 
                     return res.json({
                         reply: textReply,
-                        meta: { engine: "insight", intent: route.intent, metric: "distinctCenters", assumptions: route.assumptions },
+                        meta: { ...(strategy === "ODATA" ? analyticalMeta : {}), engine: "insight", intent: route.intent, metric: "distinctCenters", assumptions: route.assumptions },
                         data: insights
                     });
                 } else if (route.intent === "compare_suma_neta_between_months") {
@@ -217,7 +220,7 @@ class ChatController {
                     if (insights.error === "MISSING_METRIC_SUMANETA") {
                         return res.json({
                             reply: "Lo siento, este archivo de datos actual no contiene la columna de montos o volúmenes esperada ('SUMA_NETA') para realizar esta comparativa.",
-                            meta: { engine: "insight", intent: route.intent, metric: "sumaNeta", error: insights.error }
+                            meta: { ...(strategy === "ODATA" ? analyticalMeta : {}), engine: "insight", intent: route.intent, metric: "sumaNeta", error: insights.error }
                         });
                     }
 
@@ -240,7 +243,7 @@ class ChatController {
 
                     return res.json({
                         reply: textReply,
-                        meta: { engine: "insight", intent: route.intent, metric: "sumaNeta", assumptions: route.assumptions },
+                        meta: { ...(strategy === "ODATA" ? analyticalMeta : {}), engine: "insight", intent: route.intent, metric: "sumaNeta", assumptions: route.assumptions },
                         data: insights
                     });
                 } else if (route.intent === "distinct_centers_by_group_between_months") {
@@ -251,7 +254,7 @@ class ChatController {
                     if (insights.error === "MISSING_DIM_GROUP") {
                         return res.json({
                             reply: "Lo siento, en este archivo no logré detectar una columna descriptiva que contenga los Grupos de Artículos o Materiales.",
-                            meta: { engine: "insight", intent: route.intent, error: insights.error }
+                            meta: { ...(strategy === "ODATA" ? analyticalMeta : {}), engine: "insight", intent: route.intent, error: insights.error }
                         });
                     }
 
@@ -268,7 +271,7 @@ class ChatController {
 
                     return res.json({
                         reply: textReply,
-                        meta: { engine: "insight", intent: route.intent, metric: "distinctCenters", assumptions: route.assumptions },
+                        meta: { ...(strategy === "ODATA" ? analyticalMeta : {}), engine: "insight", intent: route.intent, metric: "distinctCenters", assumptions: route.assumptions },
                         data: insights
                     });
                 } else if (route.intent === "materials_without_movements_feb_vs_jan") {
@@ -277,7 +280,7 @@ class ChatController {
                     if (insights.error === "MISSING_DIM_MATERIAL") {
                         return res.json({
                             reply: "Lo siento, este archivo no parece contener una columna descriptiva o ID de los Materiales / Artículos para cruzarlos.",
-                            meta: { engine: "insight", intent: route.intent, error: insights.error }
+                            meta: { ...(strategy === "ODATA" ? analyticalMeta : {}), engine: "insight", intent: route.intent, error: insights.error }
                         });
                     }
 
@@ -298,7 +301,7 @@ class ChatController {
 
                     return res.json({
                         reply: textReply,
-                        meta: { engine: "insight", intent: route.intent, metric: "setDifference", assumptions: route.assumptions },
+                        meta: { ...(strategy === "ODATA" ? analyticalMeta : {}), engine: "insight", intent: route.intent, metric: "setDifference", assumptions: route.assumptions },
                         data: insights
                     });
                 } else if (route.intent === "compare_total_volume_between_months") {
@@ -307,7 +310,7 @@ class ChatController {
                     if (insights.error === "MISSING_VOLUME_METRIC") {
                         return res.json({
                             reply: "No puedo calcular volumen total porque el CSV no trae una columna de volumen (ej: CANTIDAD/IMPORTE). ¿Qué métrica deseas usar?",
-                            meta: { engine: "insight", intent: route.intent, error: insights.error }
+                            meta: { ...(strategy === "ODATA" ? analyticalMeta : {}), engine: "insight", intent: route.intent, error: insights.error }
                         });
                     }
 
@@ -329,7 +332,7 @@ class ChatController {
 
                     return res.json({
                         reply: textReply,
-                        meta: { engine: "insight", intent: route.intent, metric: "totalVolume", metricKey: insights.metricKey, assumptions: route.assumptions },
+                        meta: { ...(strategy === "ODATA" ? analyticalMeta : {}), engine: "insight", intent: route.intent, metric: "totalVolume", metricKey: insights.metricKey, assumptions: route.assumptions },
                         data: insights
                     });
                 }
@@ -341,6 +344,7 @@ class ChatController {
                 Redacta un texto claro y directo, usando 2-4 bullets con cifras.
                 Si estás comparando meses, incluye el ganador.
                 
+                ${strategy === 'ODATA' ? 'El recorrido tiene cobertura completa para esta consulta, pero la consistencia temporal NO está verificada. Describe cifras del recorrido y no afirmes una fotografía transaccional exacta.' : ''}
                 JSON INSIGHTS:
                 ${JSON.stringify(insights, null, 2)}
                 `;
@@ -361,7 +365,7 @@ class ChatController {
 
                 return res.json({
                     reply: textReply,
-                    meta: { engine: "ai", intent: route.intent, insights_provided: true, assumptions: route.assumptions }
+                    meta: { ...(strategy === "ODATA" ? analyticalMeta : {}), engine: "ai", intent: route.intent, insights_provided: true, assumptions: route.assumptions }
                 });
             }
 
@@ -388,18 +392,8 @@ class ChatController {
 
     async proxyDatasphere(req, res, next) {
         try {
-            const url = `${config.datasphere.url}?$top=50&$format=json`;
-            const auth = Buffer.from(`${config.datasphere.user}:${config.datasphere.pass}`).toString("base64");
-
-            const r = await fetch(url, {
-                headers: {
-                    Authorization: `Basic ${auth}`,
-                    Accept: "application/json"
-                }
-            });
-
-            const text = await r.text();
-            res.status(r.status).type("application/json").send(text);
+            const result = await DataService.fetchMovMat();
+            return res.json(result);
         } catch (err) {
             next(err);
         }

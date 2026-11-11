@@ -1,3 +1,4 @@
+const coverage = require('./ODataCoverageService');
 const IndexService = require("./IndexService");
 const numeric = require("../utils/numeric");
 
@@ -6,6 +7,7 @@ class InsightEngineService {
      * Devuelve para cada mes del año: movements y distinctCenters.
      */
     activityByMonth(rows, year) {
+        coverage.assertAnalytic(rows);
         if (!rows || rows.length === 0) return { year, months: [] };
 
         const { dateCol, centerCol } = this._detectCols(rows);
@@ -55,6 +57,7 @@ class InsightEngineService {
      * Compara dos meses en base a una métrica
      */
     compareMonths(rows, year, monthA, monthB, metric = "movements") {
+        coverage.assertAnalytic(rows);
         const activity = this.activityByMonth(rows, year);
         const statsA = activity.months.find(m => m.month === monthA) || { movements: 0, distinctCenters: 0 };
         const statsB = activity.months.find(m => m.month === monthB) || { movements: 0, distinctCenters: 0 };
@@ -81,6 +84,7 @@ class InsightEngineService {
      * Extrae información y patrones para un trimestre (Q1-Q4) de un año
      */
     quarterPatterns(rows, year, quarter) {
+        coverage.assertAnalytic(rows);
         if (![1, 2, 3, 4].includes(quarter)) {
             return { error: "Trimestre inválido, debe ser 1, 2, 3 o 4" };
         }
@@ -166,6 +170,7 @@ class InsightEngineService {
      * Devuelve el día con mayor cantidad de centros activos en el año
      */
     maxActiveCentersDay(rows, year) {
+        coverage.assertAnalytic(rows);
         if (!rows || rows.length === 0) return { year, error: "No data" };
         const { dateCol, centerCol } = this._detectCols(rows);
         const yearStr = year.toString();
@@ -209,6 +214,7 @@ class InsightEngineService {
      * Prioriza centros por movimientos en un año o en todo el set.
      */
     prioritizeCenters(rows, opts = {}) {
+        coverage.assertAnalytic(rows);
         if (!rows || rows.length === 0) return { error: "No data" };
         const { dateCol, centerCol } = this._detectCols(rows);
 
@@ -248,6 +254,7 @@ class InsightEngineService {
      * Calcula la diferencia exacta de centros activos entre dos meses de un año
      */
     diffDistinctCentersMonths(rows, year, monthA, monthB) {
+        coverage.assertAnalytic(rows);
         if (!rows || rows.length === 0) return { error: "No data" };
         const { dateCol, centerCol } = this._detectCols(rows);
 
@@ -302,6 +309,7 @@ class InsightEngineService {
      * Calcula la suma de SUMA_NETA por mes y compara dos meses.
      */
     compareSumaNetaMonths(rows, year, monthA, monthB) {
+        coverage.assertAnalytic(rows);
         if (!rows || rows.length === 0) return { error: "No data" };
         const { dateCol, sumaNetaCol } = this._detectCols(rows);
 
@@ -359,6 +367,7 @@ class InsightEngineService {
      * Filtra los centros únicos por grupo de artículos entre dos meses dados.
      */
     distinctCentersByGroupMonths(rows, year, monthA, monthB, group) {
+        coverage.assertAnalytic(rows);
         if (!rows || rows.length === 0) return { error: "No data" };
         const { dateCol, centerCol, groupCol } = this._detectCols(rows);
 
@@ -410,6 +419,7 @@ class InsightEngineService {
      * Set Difference: Obtiene los materiales que operaron en monthA y NO en monthB (y viceversa)
      */
     materialsWithoutMovementsMonths(rows, year, monthA, monthB) {
+        coverage.assertAnalytic(rows);
         if (!rows || rows.length === 0) return { error: "No data" };
         const { dateCol, materialCol } = this._detectCols(rows);
 
@@ -489,6 +499,7 @@ class InsightEngineService {
      * Calcula dinámicamente el volumen total por mes procesando floats de forma segura.
      */
     totalVolumeByMonth(rows, year, month, metricKey) {
+        coverage.assertAnalytic(rows);
         if (!rows || rows.length === 0) return { month, volumeTotal: 0 };
         const { dateCol } = this._detectCols(rows);
 
@@ -518,6 +529,7 @@ class InsightEngineService {
      * Compara el volumen acumulado de la métrica resuelta entre dos meses.
      */
     compareTotalVolumeBetweenMonths(rows, year, monthA, monthB, metricKeyOverride) {
+        coverage.assertAnalytic(rows);
         if (!rows || rows.length === 0) return { error: "No data" };
         const cols = Object.keys(rows[0]);
 

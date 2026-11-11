@@ -1,3 +1,4 @@
+const coverage = require('./ODataCoverageService');
 const { normalizeHeader } = require("../utils/helpers");
 
 class IndexService {
@@ -8,6 +9,7 @@ class IndexService {
      * @returns {Map<string, Set<string>>} Map<DateString, Set<CenterID>>
      */
     buildIndexes(rows) {
+        coverage.assertAnalytic(rows);
         // Map<DateKey, Set<CenterID>>
         const centersByDate = new Map();
 

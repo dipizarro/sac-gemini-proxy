@@ -5,6 +5,7 @@ const schema = require('./ODataSchemaService');
 const SchemaError = require('./ODataSchemaError');
 const transport = require('./ODataTransport');
 const { performance } = require('node:perf_hooks');
+const { normalizeHeader } = require('../utils/helpers');
 
 const LIMITS = Object.freeze({ maxPages: 1000, maxRows: 100000, maxResponseBytes: 2 * 1024 * 1024,
     maxBytes: 64 * 1024 * 1024, totalMs: 120000, requestMs: 15000 });
@@ -38,6 +39,10 @@ function nextUrl(link, current, authorized) {
 }
 
 async function traverse(options = {}) {
+    const admitted = new Set(['mode', 'filter', 'select', 'orderby', 'top', 'continuationSupported', 'forceMetadata', 'limits', 'normalize']);
+    if (!options || typeof options !== 'object' || Array.isArray(options) ||
+        ![Object.prototype, null].includes(Object.getPrototypeOf(options)) || Reflect.ownKeys(options).some(key => !admitted.has(key))) fail('INVALID_OPTIONS');
+    if (['normalize', 'forceMetadata'].some(key => options[key] !== undefined && typeof options[key] !== 'boolean')) fail('INVALID_OPTIONS');
     const started = performance.now();
     const coverage = { status: 'INDETERMINATE', mode: MODES.includes(options.mode) ? options.mode : undefined, pages: 0, rows: 0, bytes: 0,
         returnedRows: 0, continuation: { backed: options.continuationSupported === true, followed: 0, terminal: false },
@@ -166,12 +171,17 @@ async function traverse(options = {}) {
             current = next;
         }
         // Reuses the approved metadata TTL/revalidation policy; it is not a data snapshot guarantee.
-        await bounded(() => schema.finish(rows, ticket, false));
+        const outputRows = options.normalize ? rows.map(row => Object.fromEntries(Object.entries(row)
+            .filter(([key]) => !key.startsWith('__') && !key.startsWith('@odata.') && !key.includes('@odata.'))
+            .map(([key, value]) => [normalizeHeader(key), value]))) : rows;
+        await bounded(() => schema.finish(outputRows, ticket, options.normalize === true));
         remaining();
         coverage.returnedRows = rows.length;
         coverage.structural = 'VALIDATED'; coverage.numericQuality = 'NOT_EVALUATED';
+        require('./ODataCoverageService').register(outputRows, coverage);
+        remaining();
         Object.freeze(coverage.count); Object.freeze(coverage.continuation); Object.freeze(coverage);
-        return { rows, ...(mode === 'SERVER_COUNT' ? { count: coverage.count.value } : {}), coverage };
+        return { rows: outputRows, ...(mode === 'SERVER_COUNT' ? { count: coverage.count.value } : {}), coverage };
     } catch (cause) {
         const error = cause instanceof PaginationError || cause instanceof SchemaError || cause instanceof transport.ODataTransportError
             ? cause : new transport.ODataTransportError('REQUEST_FAILED');
