@@ -16,6 +16,7 @@ function requireComplete(rows, scope = true) {
         (!scope || typeof scope !== 'object' || !require('./ODataQueryScope').matches(require('../providers/ODataProvider').scopeFor(rows), scope))) fail('INCOMPLETE_SCOPE');
     if (rows.length !== held.identities.length || held.identities.some((row, i) => rows[i] !== row)) fail('SNAPSHOT_CHANGED');
     require('./ODataSchemaService').assertSnapshot(rows);
+    require('./ODataQueryScope').assertGroupRows(rows, require('../providers/ODataProvider').scopeFor(rows));
     return held.coverage;
 }
 function assertAnalytic(rows, scope = true) {

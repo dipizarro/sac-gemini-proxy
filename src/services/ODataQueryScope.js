@@ -23,4 +23,10 @@ function matches(actual, requested) {
     requested = normalize(requested);
     return actual && Object.keys(requested).length === Object.keys(actual).length && Object.keys(requested).every(k => requested[k] === actual[k]);
 }
-module.exports = { normalize, filter, matches };
+function assertGroupRows(rows, scope) {
+    if (scope?.kind !== 'DATE_GROUP') return;
+    if (rows.some(row => typeof row.GRUPO_ARTICULOS !== 'string' || row.GRUPO_ARTICULOS !== scope.group)) {
+        throw new (require('./ODataPaginationService').PaginationError)('SCOPE_PAYLOAD_MISMATCH');
+    }
+}
+module.exports = { normalize, filter, matches, assertGroupRows };

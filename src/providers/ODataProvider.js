@@ -29,7 +29,10 @@ class ODataProvider {
         }
         const mode = count ? 'SERVER_COUNT' : top !== undefined && top !== null ? 'TOP_N' : filter ? 'COMPLETE_FILTERED' : 'COMPLETE_COLLECTION';
         const result = await this.traverse({ mode, filter, select, orderby, ...(mode === 'TOP_N' ? { top } : {}), normalize: true });
-        if (scope && mode === 'COMPLETE_FILTERED') queryScopes.set(result.rows, scope);
+        if (scope && mode === 'COMPLETE_FILTERED') {
+            require('../services/ODataQueryScope').assertGroupRows(result.rows, scope);
+            queryScopes.set(result.rows, scope);
+        }
         return count ? result.count : result.rows;
     }
 }

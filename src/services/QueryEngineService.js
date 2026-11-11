@@ -43,6 +43,7 @@ class QueryEngineService {
      */
     sumSumaNetaByGroupAndDate(rows, dateKey, group, opts = {}) {
         coverage.assertAnalytic(rows, { kind: 'DATE_GROUP', date: dateKey, group });
+        const isOData = numeric.hasODataOrigin(rows);
         const breakdownByCenter = opts.breakdownByCenter !== false; // Default true
         const topN = opts.top || 10;
 
@@ -65,7 +66,7 @@ class QueryEngineService {
         const cols = Object.keys(rows[0]);
         const dateCol = cols.find(c => c === "FECHA" || c === "FE_REGISTRO") || cols[0];
         const centerCol = cols.find(c => c === "CENTRO" || c === "ID_CENTRO") || cols[1];
-        const groupCol = cols.find(c => c.includes("GRUPO_ARTICULO"));
+        const groupCol = cols.find(c => isOData ? c === 'GRUPO_ARTICULOS' : c.includes("GRUPO_ARTICULO"));
         const metricKey = cols.find(c => c === "SUMA_NETA") || cols.find(c => c.includes("NETA") || c.includes("SUMA"));
 
         if (!metricKey && numeric.isStrict(rows)) throw numeric.qualityError(rows, 'MISSING_FIELD');
@@ -82,7 +83,7 @@ class QueryEngineService {
             };
         }
 
-        const targetGroup = group.trim().toUpperCase();
+        const targetGroup = isOData ? group : group.trim().toUpperCase();
 
         for (let i = 0; i < rows.length; i++) {
             const row = rows[i];
@@ -90,9 +91,11 @@ class QueryEngineService {
             const normDate = IndexService.normalizeDate(rawDate);
 
             if (normDate === dateKey) {
-                const rowGroup = (row[groupCol] || "").trim().toUpperCase();
-                // Match fuzzy/exact del grupo
-                if (rowGroup.includes(targetGroup) || targetGroup.includes(rowGroup)) {
+                const rowGroup = isOData ? row[groupCol] : (row[groupCol] || "").trim().toUpperCase();
+                const matchesGroup = isOData
+                    ? typeof rowGroup === 'string' && typeof targetGroup === 'string' && rowGroup !== '' && rowGroup === targetGroup
+                    : rowGroup.includes(targetGroup) || targetGroup.includes(rowGroup);
+                if (matchesGroup) {
                     rowsMatched++;
 
                     const center = row[centerCol];

@@ -194,3 +194,89 @@ git status --short
 ```
 
 La suite completa se ejecutó antes y después de añadir pruebas. No se instalaron dependencias ni se modificaron archivos productivos, credenciales, configuración o datos SAP. Sin commit, push, fusión a main ni activación de capacidades. Se entrega el dictamen para revisión y aprobación de los siguientes pasos.
+
+
+## 10. Etapa 4C.1 — corrección semántica autorizada (2026-11-11)
+
+Base aprobada y verificada: `2bf70b7`. Git estaba limpio al comenzar. Esta sección actualiza el diagnóstico histórico anterior: **la divergencia local de grupos OData queda corregida**, pero la equivalencia remota y la continuación siguen sin certificarse. P03–P05 continúan bloqueadas. No se realizaron consultas SAP ni se solicitó crear un recurso nuevo.
+
+### Corrección implementada
+
+En `QueryEngineService.sumSumaNetaByGroupAndDate`, después de la guarda de cobertura, se consulta la procedencia mediante `numeric.hasODataOrigin`, usando los registros de identidad existentes. No se clasifica el origen por el formato de una celda ni por una variable de entorno.
+
+Para OData:
+
+- La columna de grupo se identifica por el nombre canónico exacto GRUPO_ARTICULOS, no por un nombre que lo contenga.
+- Se comparan strings mediante igualdad literal; no se ejecutan includes, trim ni toUpperCase para determinar coincidencias.
+- Prefijos, sufijos, diferencias de mayúsculas y espacios son valores distintos.
+- Null, undefined y cadena vacía no coinciden con un grupo solicitado válido. Un campo obligatorio omitido puede ser rechazado antes por el contrato estructural.
+- El resultado conserva el grupo solicitado/acreditado literalmente, incluso si contiene minúsculas o espacios exteriores. El contrato DATE_GROUP sigue rechazando argumentos vacíos o compuestos solo por espacios mediante su validación previa.
+
+Para CSV y el comportamiento legado no OData se mantiene el predicado flexible anterior, incluida su normalización de mayúsculas y espacios. No se modificaron perfiles, parser Int64 ni acumulados seguros.
+
+### Validación del grupo en respuestas DATE_GROUP
+
+Se agregó `ODataQueryScope.assertGroupRows`, limitada al contrato DATE_GROUP. Recorre todas las filas y exige que GRUPO_ARTICULOS sea un string exactamente igual al literal acreditado.
+
+`ODataProvider.executeFilteredQuery` la invoca para COMPLETE_FILTERED antes de registrar el alcance privado y entregar el array al consumidor. Una fila ajena invalida el resultado entero; no se elimina para devolver una suma parcial. La captura candidata no se entrega ni se publica en MOVMAT_DATA.
+
+`ODataCoverageService.requireComplete` repite esa validación antes de utilizar un snapshot DATE_GROUP registrado, después de la validación estructural. Esto detecta la mutación posterior del grupo de una fila, aunque la identidad de la fila permanezca igual. Son recorridos lineales por validación, no escaneos por cada lectura de métrica.
+
+Si una proyección DATE_GROUP omite el grupo en las filas, no puede verificarse su correspondencia: se rechaza conservadoramente. No se amplía automáticamente select ni se supone que la respuesta respetó el filtro. Las consultas de count, DATE, RANGE y otras operaciones conservan sus contratos anteriores; esta comprobación no se aplica a sus filas.
+
+Error nuevo dentro del contrato existente: **ODATA_COMPLETENESS_ERROR / SCOPE_PAYLOAD_MISMATCH, HTTP 502**. Indica una respuesta incompatible con el alcance, no una solicitud inválida del usuario ni falta de capacidad temporal. Reutiliza PaginationError y el middleware saneado; no incluye grupos, filas, filtros, URLs ni cuerpos remotos. Los errores estructurales anteriores siguen teniendo prioridad cuando falta una propiedad requerida por la proyección. Se mantienen las protecciones de caché y la prohibición de fallback EXPORT ante estos errores.
+
+### Regresiones y resultados reales
+
+Las diez caracterizaciones de ODataGroupSemantics se convirtieron en regresiones de la semántica autorizada. Ya no esperan el comportamiento incorrecto anterior. Se añadieron quince casos, sin eliminar las pruebas existentes.
+
+| Momento | Resultado ejecutado |
+| --- | --- |
+| Baseline anterior a cualquier edición | **408/408**, 16 suites, 21,989 s. |
+| Regresiones antes del cambio productivo | **18 fallidas, 6 aprobadas**, 24 casos semánticos. Fallaron coincidencias parciales, presentación del literal y aceptación de grupos ajenos. |
+| Primera corrección semántica | **24/24** casos semánticos aprobados. |
+| Suite completa inicial tras corregir | **422/422**, 16 suites, 22,786 s. |
+| Suite completa final, con proyección sin grupo | **423/423**, 16 suites, 22,046 s. |
+
+La matriz de nueve casos individuales ahora exige igualdad entre colección completa y subconjunto DATE_GROUP: solo el grupo idéntico suma 10; prefijo, sufijo, otra capitalización, otros espacios, grupo inexistente, nombre contenido, vacío y null suman cero cuando se consulta sobre la colección completa y el servidor sintético entrega el subconjunto literal correcto.
+
+El caso combinado de grupos solapados ahora suma **10 en una fila en ambos caminos**, frente a los 100 en cuatro filas reproducidos antes. Los valores son exclusivamente sintéticos.
+
+Cobertura adicional:
+
+- Preservación de literales solicitados con minúsculas y espacios, tanto en colección como en subconjunto.
+- Respuestas remotas sintéticas con grupo diferente, prefijo/sufijo, otra capitalización, espacios, vacío o null: rechazo 502, sin entregar filas parciales.
+- Grupo undefined: rechazo estructural con proyección completa; rechazo de alcance si una proyección parcial permite su ausencia estructural.
+- Mutación del grupo después del registro: rechazo antes de sumar y error HTTP sin el valor privado del fixture.
+- CSV: se conservan coincidencias flexibles y grupo presentado normalizado, además de las suites aprobadas existentes.
+- Int64 fuera del rango seguro y texto inválido siguen produciendo DATA_QUALITY_ERROR al sumar un grupo coincidente.
+- Las suites completas mantienen aprobadas las comprobaciones de cobertura, caché, índices, perfiles, TTL y HTTP existentes.
+
+Comandos ejecutados:
+
+```powershell
+node node_modules/jest/bin/jest.js --runInBand --silent --cache=false
+node node_modules/jest/bin/jest.js tests/ODataGroupSemantics.test.js --runInBand --silent --cache=false
+git diff --check
+```
+
+### Archivos modificados y alcance
+
+| Archivo | Cambio |
+| --- | --- |
+| `src/services/QueryEngineService.js` | Igualdad literal y preservación del grupo únicamente para OData; selección canónica de la columna. |
+| `src/services/ODataQueryScope.js` | Validación de filas del contrato DATE_GROUP. |
+| `src/providers/ODataProvider.js` | Rechazo del resultado incompatible antes de acreditar su alcance y devolverlo. |
+| `src/services/ODataCoverageService.js` | Revalidación del grupo acreditado antes de consumir el snapshot. |
+| `tests/ODataGroupSemantics.test.js` | Diez caracterizaciones convertidas y quince regresiones adicionales. |
+| Este documento | Corrección, evidencia y límites de la equivalencia remota. |
+
+No se modificaron CSDL, metadata, transporte JSON, paginación, capacidades, dependencias, configuración privada ni otros métodos analíticos. No se requirió ampliar contratos de otras operaciones. Sin commit ni push.
+
+### Límites y dictamen actualizado
+
+La semántica **local** de esta operación OData es ahora igualdad literal, consistente entre las colecciones completas y los subconjuntos sintéticos que respetan ese contrato. Esto **no demuestra** que SAP use la misma collation que JavaScript.
+
+Si una futura respuesta remota incluye variantes distintas del literal acreditado, se rechaza; no se oculta la diferencia filtrando localmente esas filas. Esta defensa detecta inclusiones observables, pero no acredita ausencia de omisiones del servidor ni resuelve la falta de evidencia de continuación.
+
+Se mantiene `continuationSupported=false`, consistencia temporal UNVERIFIED y exact=false para OData. P03–P05 no se ejecutaron y siguen bloqueadas por la ausencia de un subconjunto no vacío de coste y cardinalidad verificados. El dictamen operativo anterior de no activar ni cerrar aún la certificación global del Issue permanece vigente. La corrección local queda preparada para revisión.
