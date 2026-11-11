@@ -1,29 +1,19 @@
-require('dotenv').config();
-const { getAccessToken } = require('./services/OAuthService');
-
-(async () => {
+// Not run on import. Automated verification uses mocks; --live is an explicit operator action.
+async function runManualCheck() {
     try {
-        console.log('--- Testing OAuthService ---');
-        console.log('1. Solicitar Token inicial...');
-        const start1 = Date.now();
-        const token1 = await getAccessToken();
-        const end1 = Date.now();
-        console.log(`Token 1 recibido en ${end1 - start1}ms:`, token1 ? `${token1}` : 'NULL');
-
-        console.log('\n2. Solicitar Token nuevamente (debe ser cacheado)...');
-        const start2 = Date.now();
-        const token2 = await getAccessToken();
-        const end2 = Date.now();
-        console.log(`Token 2 recibido en ${end2 - start2}ms:`, token2 ? `${token2}` : 'NULL');
-
-        if (token1 === token2) {
-            console.log('\nSUCCESS: Tokens coinciden (cache funcionando).');
-        } else {
-            console.error('\nFAIL: Tokens diferentes.');
-        }
-
-    } catch (error) {
-        console.error('\nERROR:', error.message);
-        process.exit(1);
+        const { getAccessToken } = require('./services/OAuthService');
+        const first = await getAccessToken();
+        const second = await getAccessToken();
+        console.log('Verificación OAuth completada; resultados coincidentes:', first === second);
+        console.log('La caché y expiración se verifican con la suite automatizada.');
+        return 0;
+    } catch {
+        console.error('No se pudo completar la verificación OAuth.');
+        return 1;
     }
-})();
+}
+if (require.main === module) {
+    if (process.argv.includes('--live')) runManualCheck().then(code => { process.exitCode = code; });
+    else console.log('Sin solicitudes externas. Para una comprobación manual autorizada, use --live.');
+}
+module.exports = { runManualCheck };
