@@ -4,7 +4,7 @@ const { normalizeHeader } = require('../utils/helpers');
 
 class ExportController {
 
-    async getPreview(req, res) {
+    async getPreview(req, res, next) {
         try {
             const { resourcePath } = req.query;
 
@@ -67,11 +67,7 @@ class ExportController {
             });
 
         } catch (error) {
-            console.error("Export Preview Error:", error);
-            res.status(500).json({
-                error: "Export Preview Failed",
-                details: error.message
-            });
+            next(error);
         }
     }
 }

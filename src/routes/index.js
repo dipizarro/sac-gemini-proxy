@@ -1,27 +1,30 @@
 const express = require("express");
-const router = express.Router();
+const { rateLimit } = require('../middlewares/httpSecurity');
 
 const ChatController = require("../controllers/ChatController");
 const CsvController = require("../controllers/CsvController");
 const WidgetController = require("../controllers/WidgetController");
 const ExportController = require("../controllers/ExportController");
 
+function createRouter() {
+const router = express.Router();
 router.get("/health", (req, res) => res.json({ success: true, service: "sac-gemini-proxy" }));
+
+router.get("/widget/main.js", WidgetController.serveWidget.bind(WidgetController));
+router.get("/demo", WidgetController.serveDemo.bind(WidgetController));
+// Shared quota across business endpoints, regardless of query strings or path casing.
+router.use(rateLimit({ limit: 20 }));
 
 // Chat & Datasphere Proxy
 router.post("/chat", ChatController.handleChat.bind(ChatController));
 router.get("/ds/movmat", ChatController.proxyDatasphere.bind(ChatController));
-
-// Widget UI
-router.get("/widget/main.js", WidgetController.serveWidget.bind(WidgetController));
-router.get("/demo", WidgetController.serveDemo.bind(WidgetController));
 
 // Export Preview
 router.get("/ds/export/preview", ExportController.getPreview.bind(ExportController));
 
 // CSV Management
 router.get("/csv/status", CsvController.getStatus.bind(CsvController));
-router.post("/csv/reload", CsvController.reload.bind(CsvController));
+router.post("/csv/reload", rateLimit({ limit: 5 }), CsvController.reload.bind(CsvController));
 router.get("/csv/summary", CsvController.getSummary.bind(CsvController));
 router.get("/csv/profile", CsvController.getProfile.bind(CsvController));
 router.get("/csv/preview", CsvController.getCsvPreview.bind(CsvController));
@@ -43,4 +46,7 @@ router.get("/csv/insights/compare-sumaneta", CsvController.getCsvInsightCompareS
 router.get("/csv/insights/group-centers", CsvController.getCsvInsightGroupCenters.bind(CsvController));
 router.get("/csv/insights/material-diff", CsvController.getCsvInsightMaterialDiff.bind(CsvController));
 
-module.exports = router;
+return router;
+}
+module.exports = createRouter();
+module.exports.createRouter = createRouter;
